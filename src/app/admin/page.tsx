@@ -83,8 +83,9 @@ export default function AdminDashboard() {
   const [toast, setToast] = useState('');
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [confirm, setConfirm] = useState<{ id: string; action: string; extra?: string; label: string; amount?: number } | null>(null);
+  const [confirm, setConfirm] = useState<{ id: string; action: string; extra?: string; label: string; amount?: number; imported?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forceShopify, setForceShopify] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'return_requested', dir: 'desc' });
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -121,8 +122,9 @@ export default function AdminDashboard() {
   useEffect(() => { if (authed) { fetchReturns(); fetchStats(); } }, [authed, tab, search, page, sort, fetchReturns, fetchStats]);
   useEffect(() => { setPage(1); }, [tab, search, sort]);
 
-  const doAction = (id: string, action: string, label: string, amount?: number, extra?: string) => {
-    setConfirm({ id, action, extra, label, amount });
+  const doAction = (id: string, action: string, label: string, amount?: number, extra?: string, imported?: boolean) => {
+    setForceShopify(false);
+    setConfirm({ id, action, extra, label, amount, imported });
   };
 
   const confirmAction = async () => {
@@ -130,7 +132,7 @@ export default function AdminDashboard() {
     setBusy(true);
     const res = await fetch('/api/returns', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: confirm.id, action: confirm.action, reject_reason: confirm.extra, amount: confirm.amount }),
+      body: JSON.stringify({ id: confirm.id, action: confirm.action, reject_reason: confirm.extra, amount: confirm.amount, force_shopify: forceShopify }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -356,7 +358,13 @@ export default function AdminDashboard() {
             <div className="text-lg font-bold text-gray-900 mb-2">Are you sure?</div>
             <div className="text-base text-gray-600 mb-2">{confirm.label}</div>
             {confirm.action === 'credit' && <p className="text-xs text-gray-400 mb-4">This will issue real store credit to the customer&apos;s Shopify account.</p>}
-            {confirm.action === 'refund' && <p className="text-xs text-gray-400 mb-4">Order will be tagged. Process the actual refund in Shopify admin.</p>}
+            {confirm.action === 'refund' && <p className="text-xs text-gray-400 mb-4">Order will be refunded to the customer&apos;s original payment method.</p>}
+            {confirm.imported && (
+              <label className="flex items-center gap-2 justify-center mb-4 cursor-pointer">
+                <input type="checkbox" checked={forceShopify} onChange={e => setForceShopify(e.target.checked)} className="w-4 h-4 rounded" />
+                <span className="text-xs text-amber-600 font-medium">Execute in Shopify (Redo import)</span>
+              </label>
+            )}
             <div className="flex flex-col gap-3 mt-4">
               <button onClick={confirmAction} disabled={busy}
                 className={`w-full py-4 rounded-xl text-base font-semibold text-white ${confirm.action === 'reject' ? 'bg-red-600' : confirm.action === 'credit' ? 'bg-emerald-600' : 'bg-gray-900'} ${busy ? 'opacity-50' : ''}`}>
@@ -394,7 +402,7 @@ type ShopifyOrder = {
 
 function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, doAction, onClose }: {
   r: Return; showReject: boolean; setShowReject: (v: boolean) => void; rejectReason: string; setRejectReason: (v: string) => void;
-  doAction: (id: string, action: string, label: string, amount?: number, extra?: string) => void; onClose: () => void;
+  doAction: (id: string, action: string, label: string, amount?: number, extra?: string, imported?: boolean) => void; onClose: () => void;
 }) {
   const [items, setItems] = useState<ReturnItem[]>([]);
   const [shopify, setShopify] = useState<ShopifyOrder | null>(null);
@@ -549,12 +557,12 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       {(r.status === 'inbox' || r.status === 'old') && !showReject && (
         <div className="flex flex-col gap-2.5 mb-5">
           {r.type === 'credit' || r.type === 'exchange' ? (
-            <button onClick={() => doAction(r.id, 'credit', `Issue $${(r.subtotal || 0).toFixed(2)} store credit to ${r.customer_name}?`, r.subtotal)}
+            <button onClick={() => doAction(r.id, 'credit', `Issue $${(r.subtotal || 0).toFixed(2)} store credit to ${r.customer_name}?`, r.subtotal, undefined, r.imported_from === 'redo')}
               className="w-full py-4 bg-emerald-600 text-white rounded-xl text-base font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors">
               Issue Credit{r.subtotal > 0 ? ` · $${r.subtotal.toFixed(2)}` : ''}
             </button>
           ) : (
-            <button onClick={() => doAction(r.id, 'refund', `Approve $${(r.subtotal || 0).toFixed(2)} refund for ${r.customer_name}?`, r.subtotal)}
+            <button onClick={() => doAction(r.id, 'refund', `Approve $${(r.subtotal || 0).toFixed(2)} refund for ${r.customer_name}?`, r.subtotal, undefined, r.imported_from === 'redo')}
               className="w-full py-4 bg-gray-900 text-white rounded-xl text-base font-semibold hover:bg-gray-800 active:bg-gray-700 transition-colors">
               Approve Refund{r.subtotal > 0 ? ` · $${r.subtotal.toFixed(2)}` : ''}
             </button>

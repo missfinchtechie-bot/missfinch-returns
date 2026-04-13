@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const supabase = getServiceClient();
   const body = await req.json();
-  const { id, action, reject_reason, amount } = body;
+  const { id, action, reject_reason, amount, force_shopify } = body;
 
   if (!id || !action) {
     return NextResponse.json({ error: 'Missing id or action' }, { status: 400 });
@@ -64,7 +64,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const now = new Date().toISOString();
-  const isImported = returnData.imported_from === 'redo';
+  const isImported = returnData.imported_from === 'redo' && !force_shopify;
   const refundAmount = amount || returnData.subtotal || 0;
 
   // ─── STORE CREDIT (gift card) ───
