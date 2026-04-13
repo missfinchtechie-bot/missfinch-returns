@@ -283,35 +283,48 @@ export default function AdminDashboard() {
           <div className="hidden md:block bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
             <table className="w-full">
               <thead>
-                <tr className="bg-gray-50/80 border-b border-gray-100">
-                  <th onClick={() => toggleSort('order_number')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Order{sort.key === 'order_number' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('customer_name')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Customer{sort.key === 'customer_name' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('subtotal')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Return ${sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('type')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Type{sort.key === 'type' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('status')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Status{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('return_requested')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Date{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('item_count')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center">Items{sort.key === 'item_count' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider text-left">Reason</th>
+                <tr className="bg-[#FAFAF8] border-b border-gray-200">
+                  <th onClick={() => toggleSort('order_number')} className="pl-4 pr-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left w-[90px]">Order{sort.key === 'order_number' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('customer_name')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Customer{sort.key === 'customer_name' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('item_count')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[50px]">Qty{sort.key === 'item_count' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('subtotal')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-right w-[100px]">Return ${sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('type')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[80px]">Type{sort.key === 'type' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('status')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[100px]">Status{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('return_requested')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left w-[110px]">Requested{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th className="px-2 pr-4 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-left">Reason</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-100">
                 {filteredReturns.map(r => {
                   const tb = typeBadge(r.type);
                   const si = statusInfo(r);
+                  const daysAgo = r.return_requested ? Math.round((new Date().getTime() - new Date(r.return_requested).getTime()) / 86400000) : null;
                   return (
                     <tr key={r.id} onClick={() => { setSelected(r); setShowReject(false); setRejectReason(''); }}
-                      className={`cursor-pointer transition-colors hover:bg-gray-50 ${r.is_flagged ? 'bg-red-50/40' : r.subtotal >= 300 ? 'bg-amber-50/30' : ''}`}>
-                      <td className="px-3 py-3 text-sm font-semibold text-gray-900 whitespace-nowrap">{r.order_number}</td>
-                      <td className="px-3 py-3">
-                        <div className="text-sm text-gray-900">{r.customer_name}</div>
-                        {r.is_flagged && <div className="text-[10px] text-red-500 font-semibold mt-0.5">⚠ {r.flag_reason || 'Flagged'}</div>}
+                      className={`cursor-pointer transition-colors hover:bg-blue-50/30 ${r.is_flagged ? 'bg-red-50/40' : r.subtotal >= 300 ? 'bg-amber-50/20' : ''}`}>
+                      <td className="pl-4 pr-2 py-2.5">
+                        <div className="text-sm font-semibold text-gray-900">{r.order_number}</div>
                       </td>
-                      <td className="px-3 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}</td>
-                      <td className="px-3 py-3"><span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${tb.bg}`}>{tb.label}</span></td>
-                      <td className="px-3 py-3"><span className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${si.cls}`}>{si.text}</span></td>
-                      <td className="px-3 py-3 text-sm text-gray-400 whitespace-nowrap">{fmtShort(r.return_requested)}</td>
-                      <td className="px-3 py-3 text-sm text-gray-400 text-center">{r.item_count}</td>
-                      <td className="px-3 py-3 text-sm text-gray-400 max-w-[140px] truncate">{displayReason(r)}</td>
+                      <td className="px-2 py-2.5">
+                        <div className="text-sm text-gray-900 font-medium">{r.customer_name}</div>
+                        {r.is_flagged && <div className="text-[10px] text-red-500 font-semibold">⚠ {r.flag_reason || 'Flagged'}</div>}
+                        {r.imported_from === 'redo' && <div className="text-[10px] text-gray-300">via Redo</div>}
+                      </td>
+                      <td className="px-2 py-2.5 text-center">
+                        <span className={`text-sm ${r.item_count >= 3 ? 'font-semibold text-amber-700' : 'text-gray-500'}`}>{r.item_count}</span>
+                      </td>
+                      <td className="px-2 py-2.5 text-right">
+                        <div className={`text-sm font-semibold ${r.subtotal >= 300 ? 'text-amber-700' : 'text-gray-900'}`}>
+                          {r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2.5 text-center"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${tb.bg}`}>{tb.label}</span></td>
+                      <td className="px-2 py-2.5 text-center"><span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${si.cls}`}>{si.text}</span></td>
+                      <td className="px-2 py-2.5">
+                        <div className="text-sm text-gray-500">{fmtShort(r.return_requested)}</div>
+                        {daysAgo !== null && daysAgo > 0 && <div className={`text-[10px] ${daysAgo > 14 ? 'text-red-400' : daysAgo > 7 ? 'text-amber-400' : 'text-gray-300'}`}>{daysAgo}d ago</div>}
+                      </td>
+                      <td className="px-2 pr-4 py-2.5 text-xs text-gray-400 max-w-[160px] truncate">{displayReason(r)}</td>
                     </tr>
                   );
                 })}
@@ -326,24 +339,27 @@ export default function AdminDashboard() {
             {filteredReturns.map(r => {
               const tb = typeBadge(r.type);
               const si = statusInfo(r);
+              const daysAgo = r.return_requested ? Math.round((new Date().getTime() - new Date(r.return_requested).getTime()) / 86400000) : null;
               return (
                 <div key={r.id} onClick={() => { setSelected(r); setShowReject(false); setRejectReason(''); }}
-                  className={`p-4 bg-white rounded-xl active:bg-gray-50 ${r.is_flagged ? 'border-2 border-red-200' : 'border border-gray-200'}`}>
-                  <div className="flex justify-between items-start mb-2">
+                  className={`p-3.5 bg-white rounded-xl active:bg-gray-50 ${r.is_flagged ? 'border-2 border-red-200' : 'border border-gray-200'}`}>
+                  <div className="flex justify-between items-start mb-1.5">
                     <div className="min-w-0 flex-1 mr-3">
-                      <div className="font-semibold text-gray-900 truncate">{r.customer_name}</div>
-                      <div className="text-sm text-gray-400 mt-0.5">{r.order_number} · {fmtShort(r.return_requested)}</div>
+                      <div className="font-semibold text-gray-900">{r.customer_name}</div>
+                      <div className="text-sm text-gray-400">{r.order_number} · {r.item_count} item{r.item_count > 1 ? 's' : ''}</div>
                     </div>
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${tb.bg}`}>{tb.label}</span>
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${si.cls}`}>{si.text}</span>
+                    <div className={`text-base font-bold ${r.subtotal >= 300 ? 'text-amber-700' : 'text-gray-900'}`}>
+                      {r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-gray-500">
-                    <span className="font-medium text-gray-900">{r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}</span>
-                    <span>{r.item_count} item{r.item_count > 1 ? 's' : ''}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${tb.bg}`}>{tb.label}</span>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${si.cls}`}>{si.text}</span>
+                    <span className="text-[10px] text-gray-400">{fmtShort(r.return_requested)}</span>
+                    {daysAgo !== null && daysAgo > 7 && <span className={`text-[10px] ${daysAgo > 14 ? 'text-red-400' : 'text-amber-400'}`}>{daysAgo}d ago</span>}
                   </div>
-                  {r.is_flagged && <div className="text-xs text-red-500 font-semibold mt-1.5">⚠ {r.flag_reason || 'Flagged'}</div>}
+                  {r.reason && <div className="text-xs text-gray-400 mt-1.5 truncate">{r.reason}</div>}
+                  {r.is_flagged && <div className="text-[10px] text-red-500 font-semibold mt-1">⚠ {r.flag_reason || 'Flagged'}</div>}
                 </div>
               );
             })}
