@@ -37,13 +37,21 @@ type SortKey = 'order_number' | 'customer_name' | 'subtotal' | 'type' | 'return_
 function fmt(d: string | null) {
   if (!d) return '—';
   const date = new Date(d);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
 }
 
 function fmtShort(d: string | null) {
   if (!d) return '—';
   const date = new Date(d);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
+}
+
+function fmtTime(d: string | null) {
+  if (!d) return '—';
+  const date = new Date(d);
+  const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
+  const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'America/New_York' });
+  return `${dateStr} · ${timeStr} EST`;
 }
 
 function displayReason(r: Return): string {
@@ -734,11 +742,9 @@ function TLRow({ date, label, color, detail, last }: { date: string; label: stri
         {!last && <div className="w-px h-5 bg-gray-200 mt-0.5" />}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs text-gray-700 font-medium">{label}</span>
-          <span className="text-[10px] text-gray-400">{fmt(date)}</span>
-        </div>
-        {detail && <div className="text-[10px] text-gray-400 mt-0.5 truncate">{detail}</div>}
+        <div className="text-xs text-gray-700 font-medium">{label}</div>
+        <div className="text-[10px] text-gray-400 mt-0.5">{fmtTime(date)}</div>
+        {detail && <div className="text-[10px] text-gray-400 truncate">{detail}</div>}
       </div>
     </div>
   );
