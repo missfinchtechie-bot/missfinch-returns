@@ -171,14 +171,6 @@ export default function AdminDashboard() {
     );
   }
 
-  const Th = ({ k, children, center }: { k: SortKey; children: React.ReactNode; center?: boolean }) => (
-    <th onClick={() => toggleSort(k)}
-      className={`px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none whitespace-nowrap ${center ? 'text-center' : 'text-left'}`}>
-      {children}
-      <span className="ml-0.5">{sort.key === k ? (sort.dir === 'asc' ? '↑' : '↓') : ''}</span>
-    </th>
-  );
-
   return (
     <div className="min-h-screen bg-[#F5F4F1]">
       {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-7 py-3 rounded-full text-sm font-medium z-[200] shadow-xl">{toast}</div>}
@@ -244,13 +236,13 @@ export default function AdminDashboard() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50/80 border-b border-gray-100">
-                  <Th k="order_number">Order</Th>
-                  <Th k="customer_name">Customer</Th>
-                  <Th k="subtotal">Value</Th>
-                  <Th k="type">Type</Th>
-                  <Th k="status">Status</Th>
-                  <Th k="return_requested">Date</Th>
-                  <Th k="item_count" center>Items</Th>
+                  {(['order_number','customer_name','subtotal','type','status','return_requested','item_count'] as SortKey[]).map(k => (
+                    <th key={k} onClick={() => toggleSort(k)}
+                      className={`px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none whitespace-nowrap ${k === 'item_count' ? 'text-center' : 'text-left'}`}>
+                      {{order_number:'Order',customer_name:'Customer',subtotal:'Value',type:'Type',status:'Status',return_requested:'Date',item_count:'Items'}[k]}
+                      {sort.key === k && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                  ))}
                   <th className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider text-left">Reason</th>
                 </tr>
               </thead>
@@ -393,7 +385,7 @@ export default function AdminDashboard() {
 
 
 /* ─── Detail Panel Component ─── */
-/* eslint-disable @next/next/no-img-element */
+
 type OrderData = {
   name: string; createdAt: string; total: string; subtotal: string; totalDiscount: string;
   shipping: string; currentTotal: string; refundable: boolean; discountCodes: string[];
