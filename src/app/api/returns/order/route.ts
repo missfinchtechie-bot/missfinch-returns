@@ -42,6 +42,13 @@ export async function GET(req: NextRequest) {
               fulfillments(first: 10) {
                 trackingInfo { number url company }
                 deliveredAt createdAt status
+                events(first: 30) {
+                  edges {
+                    node {
+                      happenedAt status message city province
+                    }
+                  }
+                }
               }
               transactions(first: 10) {
                 kind status gateway
@@ -101,11 +108,17 @@ export async function GET(req: NextRequest) {
           image: n.image?.url,
         };
       }) || [],
-      fulfillments: order.fulfillments?.map((f: { trackingInfo: { number: string; company: string; url: string }[]; deliveredAt: string; createdAt: string; status: string }) => ({
+      fulfillments: order.fulfillments?.map((f: { trackingInfo: { number: string; company: string; url: string }[]; deliveredAt: string; createdAt: string; status: string; events: { edges: { node: { happenedAt: string; status: string; message: string; city: string; province: string } }[] } }) => ({
         tracking: f.trackingInfo?.[0] || null,
         deliveredAt: f.deliveredAt,
         shippedAt: f.createdAt,
         status: f.status,
+        events: f.events?.edges?.map(e => ({
+          date: e.node.happenedAt,
+          status: e.node.status,
+          message: e.node.message,
+          location: [e.node.city, e.node.province].filter(Boolean).join(', ') || null,
+        })) || [],
       })) || [],
     });
   } catch (err) {

@@ -400,7 +400,7 @@ type OrderData = {
   customer: { id: string; name: string; email: string; phone: string; orderCount: string; totalSpent: string } | null;
   shippingAddress: { name: string; address1: string; address2: string | null; city: string; provinceCode: string; zip: string; country: string; phone: string } | null;
   lineItems: { id: string; title: string; variant: string; sku: string; quantity: number; retailPrice: string; paidPrice: string; discount: string; image: string | null }[];
-  fulfillments: { tracking: { number: string; company: string; url: string } | null; deliveredAt: string; shippedAt: string; status: string }[];
+  fulfillments: { tracking: { number: string; company: string; url: string } | null; deliveredAt: string; shippedAt: string; status: string; events: { date: string; status: string; message: string; location: string | null }[] }[];
 };
 type CustomerHistory = { totalReturns: number; returnsIn90Days: number; totalReturnValue: number };
 type Note = { id: string; detail: string; event_date: string };
@@ -605,6 +605,10 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
             {ful.deliveredAt && <div className="flex justify-between"><span className="text-gray-400">Delivered</span><span className="text-gray-700">{fmtShort(ful.deliveredAt)}</span></div>}
             {ful.tracking && <div className="flex justify-between"><span className="text-gray-400">Tracking</span><a href={ful.tracking.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs truncate max-w-[200px]">{ful.tracking.company} {ful.tracking.number}</a></div>}
           </div>
+          {/* Carrier scan history */}
+          {ful.events && ful.events.length > 0 && (
+            <TrackingHistory events={ful.events} />
+          )}
         </div>
       )}
 
@@ -746,6 +750,48 @@ function TLRow({ date, label, color, detail, last }: { date: string; label: stri
         <div className="text-[10px] text-gray-400 mt-0.5">{fmtTime(date)}</div>
         {detail && <div className="text-[10px] text-gray-400 truncate">{detail}</div>}
       </div>
+    </div>
+  );
+}
+
+function TrackingHistory({ events }: { events: { date: string; status: string; message: string; location: string | null }[] }) {
+  const [expanded, setExpanded] = useState(false);
+  // Show most recent events first, deduplicate by message+location
+  const sorted = [...events].reverse();
+  const shown = expanded ? sorted : sorted.slice(0, 3);
+
+  const statusColor = (s: string) => {
+    if (s === 'DELIVERED') return 'bg-emerald-400';
+    if (s === 'OUT_FOR_DELIVERY') return 'bg-emerald-300';
+    if (s === 'IN_TRANSIT') return 'bg-blue-300';
+    return 'bg-gray-300';
+  };
+
+  return (
+    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden">
+      <button onClick={() => setExpanded(!expanded)} className="w-full px-3 py-2 bg-gray-50 text-[10px] text-gray-500 font-medium uppercase tracking-wider text-left hover:bg-gray-100 flex justify-between items-center">
+        <span>Carrier Scans ({events.length})</span>
+        <span>{expanded ? '▲' : '▼'}</span>
+      </button>
+      <div className="px-3 py-2 space-y-0">
+        {shown.map((e, i) => (
+          <div key={i} className="flex items-start gap-2.5 py-1">
+            <div className="flex flex-col items-center flex-shrink-0 pt-1">
+              <div className={`w-1.5 h-1.5 rounded-full ${statusColor(e.status)}`} />
+              {i < shown.length - 1 && <div className="w-px h-4 bg-gray-100 mt-0.5" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] text-gray-700">{e.message}</div>
+              <div className="text-[10px] text-gray-400">{fmtTime(e.date)}{e.location ? ` — ${e.location}` : ''}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {events.length > 3 && !expanded && (
+        <button onClick={() => setExpanded(true)} className="w-full px-3 py-1.5 text-[10px] text-blue-500 hover:text-blue-600 text-center border-t border-gray-100">
+          Show all {events.length} events
+        </button>
+      )}
     </div>
   );
 }
