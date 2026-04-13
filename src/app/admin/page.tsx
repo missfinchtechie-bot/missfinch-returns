@@ -391,169 +391,174 @@ export default function AdminDashboard() {
   );
 }
 
+
 /* ─── Detail Panel Component ─── */
-type ReturnItem = { id: string; product_name: string; sku: string; size: string; price: number; image_url: string | null };
-type ShopifyOrder = {
-  customer: { name: string; email: string; phone: string; orderCount: string; totalSpent: string } | null;
-  shippingAddress: { name: string; address1: string; address2: string; city: string; province: string; zip: string } | null;
-  lineItems: { id: string; title: string; variant: string; sku: string; quantity: number; price: string; image: string | null }[];
-  total: string; refundable: boolean; gateways: string[];
+/* eslint-disable @next/next/no-img-element */
+type OrderData = {
+  name: string; createdAt: string; total: string; subtotal: string; totalDiscount: string;
+  shipping: string; currentTotal: string; refundable: boolean; discountCodes: string[];
+  gateway: string; tags: string[];
+  customer: { id: string; name: string; email: string; phone: string; orderCount: string; totalSpent: string } | null;
+  shippingAddress: { name: string; address1: string; address2: string | null; city: string; provinceCode: string; zip: string; country: string; phone: string } | null;
+  lineItems: { id: string; title: string; variant: string; sku: string; quantity: number; retailPrice: string; paidPrice: string; discount: string; image: string | null }[];
+  fulfillments: { tracking: { number: string; company: string; url: string } | null; deliveredAt: string; shippedAt: string; status: string }[];
 };
 
 function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, doAction, onClose }: {
   r: Return; showReject: boolean; setShowReject: (v: boolean) => void; rejectReason: string; setRejectReason: (v: string) => void;
   doAction: (id: string, action: string, label: string, amount?: number, extra?: string, imported?: boolean) => void; onClose: () => void;
 }) {
-  const [items, setItems] = useState<ReturnItem[]>([]);
-  const [shopify, setShopify] = useState<ShopifyOrder | null>(null);
+  const [order, setOrder] = useState<OrderData | null>(null);
+  const [loadingOrder, setLoadingOrder] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/returns/items?return_id=${r.id}`).then(res => res.json()).then(d => setItems(d.items || [])).catch(() => {});
+    setLoadingOrder(true);
     if (r.order_number) {
-      fetch(`/api/returns/order?order_number=${encodeURIComponent(r.order_number)}`).then(res => res.json()).then(d => {
-        if (!d.error) setShopify(d);
-      }).catch(() => {});
-    }
-  }, [r.id, r.order_number]);
+      fetch(`/api/returns/order?order_number=${encodeURIComponent(r.order_number)}`)
+        .then(res => res.json()).then(d => { if (!d.error) setOrder(d); })
+        .catch(() => {}).finally(() => setLoadingOrder(false));
+    } else { setLoadingOrder(false); }
+  }, [r.order_number]);
 
   const tb = typeBadge(r.type);
   const si = statusInfo(r);
-
-  // Use Shopify data for customer info if available
-  const email = shopify?.customer?.email || r.customer_email;
-  const phone = shopify?.customer?.phone;
-  const addr = shopify?.shippingAddress;
-  const customerOrders = shopify?.customer?.orderCount;
-  const customerSpent = shopify?.customer?.totalSpent;
-  // Use Shopify line items if we don't have return_items
-  const displayItems = items.length > 0 ? items.map(i => ({
-    title: i.product_name, variant: i.size, sku: i.sku, price: i.price.toFixed(2), image: i.image_url,
-  })) : (shopify?.lineItems || []).map(i => ({
-    title: i.title, variant: i.variant, sku: i.sku, price: i.price, image: i.image,
-  }));
-
-  const timelineItems: { date: string | null; label: string; color: string; detail?: string }[] = [];
-  if (r.return_requested) timelineItems.push({ date: r.return_requested, label: 'Requested', color: 'bg-gray-300' });
-  if (r.label_sent) timelineItems.push({ date: r.label_sent, label: 'Label sent', color: 'bg-blue-300' });
-  if (r.customer_shipped) timelineItems.push({ date: r.customer_shipped, label: 'Shipped', color: 'bg-blue-400', detail: r.tracking_number || undefined });
-  if (r.delivered_to_us) timelineItems.push({ date: r.delivered_to_us, label: 'Delivered to us', color: 'bg-emerald-400' });
-  if (r.processed_at) {
-    const pLabel = r.outcome === 'credit' ? 'Credit issued' : r.outcome === 'refund' ? 'Refund approved' : r.outcome === 'rejected' ? 'Rejected' : 'Processed';
-    const pDetail = r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : undefined;
-    timelineItems.push({ date: r.processed_at, label: pLabel, color: r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600', detail: pDetail });
-  }
+  const cust = order?.customer;
+  const addr = order?.shippingAddress;
+  const ful = order?.fulfillments?.[0];
+  const retailTotal = order?.lineItems?.reduce((s, i) => s + parseFloat(i.retailPrice || '0') * i.quantity, 0) || 0;
+  const orderTotal = parseFloat(order?.total || '0');
+  const discount = parseFloat(order?.totalDiscount || '0');
+  const restockFee = orderTotal > 0 && r.subtotal > 0 ? orderTotal - r.subtotal : 0;
 
   return (
-    <div className="p-6">
+    <div className="p-5">
       {/* Header */}
-      <div className="flex justify-between items-start mb-5">
+      <div className="flex justify-between items-start mb-4">
         <div>
-          <div className="text-xl font-bold text-gray-900">{r.customer_name}</div>
-          <div className="text-sm text-gray-400 mt-1">{r.order_number}</div>
+          <div className="text-lg font-bold text-gray-900">{r.customer_name}</div>
+          <div className="text-sm text-gray-400">{r.order_number} · Ordered {order ? fmtShort(order.createdAt) : '...'}</div>
+          {r.return_requested && <div className="text-xs text-gray-400">Return created {fmtShort(r.return_requested)}</div>}
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg ${tb.bg}`}>{tb.label}</span>
-          <span className={`text-[11px] font-medium px-2.5 py-1 rounded-lg ${si.cls}`}>{si.text}</span>
-          <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-lg ml-1">✕</button>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${tb.bg}`}>{tb.label}</span>
+          <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${si.cls}`}>{si.text}</span>
+          <button onClick={onClose} className="text-gray-300 hover:text-gray-500 ml-1">✕</button>
         </div>
       </div>
 
       {r.is_flagged && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
-          <div className="text-sm font-semibold text-red-600">⚠ Flagged</div>
-          <div className="text-sm text-red-600 mt-0.5">{r.flag_reason}</div>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm">
+          <span className="font-semibold text-red-600">⚠ Flagged</span>
+          {r.flag_reason && <span className="text-red-600 ml-1">— {r.flag_reason}</span>}
         </div>
       )}
 
-      {/* Info grid */}
-      <div className="grid grid-cols-2 gap-2.5 mb-5">
-        <InfoBox label="Value" value={r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'} />
-        <InfoBox label="Items" value={String(r.item_count)} />
-        <InfoBox label="Reason" value={displayReason(r)} />
-        <InfoBox label="Source" value={r.imported_from === 'redo' ? 'Redo' : 'Shopify'} />
-        {r.total_fees > 0 && <InfoBox label="Fees" value={`$${r.total_fees.toFixed(2)}`} />}
-        {r.bonus_amount > 0 && <InfoBox label="Bonus" value={`$${r.bonus_amount.toFixed(2)}`} />}
-      </div>
+      {order?.discountCodes?.length ? (
+        <div className="text-xs text-gray-400 mb-4">Discount code: <span className="font-medium text-gray-600">{order.discountCodes.join(', ')}</span></div>
+      ) : null}
 
-      {/* Order Items */}
-      {displayItems.length > 0 && (
-        <div className="mb-5">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2.5">Order Items</div>
+      {/* Return Items */}
+      <div className="mb-4">
+        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Items</div>
+        {loadingOrder ? (
+          <div className="text-xs text-gray-300 py-4 text-center">Loading...</div>
+        ) : (
           <div className="space-y-2">
-            {displayItems.map((item, i) => (
-              <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
-                {item.image && <img src={item.image} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 truncate">{item.title}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    {item.variant && <span>{item.variant}</span>}
-                    {item.variant && item.sku && <span> · </span>}
-                    {item.sku && <span>{item.sku}</span>}
+            {(order?.lineItems || []).map((item, i) => (
+              <div key={i} className="bg-white border border-gray-200 rounded-lg p-3">
+                <div className="flex gap-3">
+                  {item.image && <img src={item.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-gray-50" />}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900">{item.title}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{item.variant}{item.sku ? ` · ${item.sku}` : ''}</div>
                   </div>
                 </div>
-                <div className="text-sm font-semibold text-gray-900 flex-shrink-0">${item.price}</div>
+                <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+                  <div className="flex justify-between text-xs"><span className="text-gray-400">Retail price</span><span className="text-gray-700">${parseFloat(item.retailPrice).toFixed(2)}</span></div>
+                  {parseFloat(item.discount) > 0 && <div className="flex justify-between text-xs"><span className="text-gray-400">Discount</span><span className="text-red-500">-${parseFloat(item.discount).toFixed(2)}</span></div>}
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Customer Info */}
-      {(email || phone || addr) && (
-        <div className="mb-5">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2.5">Customer</div>
-          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
-            {email && <div className="text-gray-700">{email}</div>}
-            {phone && <div className="text-gray-500">{phone}</div>}
-            {addr && (
-              <div className="text-gray-500 text-xs mt-1">
-                {addr.address1}{addr.address2 ? `, ${addr.address2}` : ''}<br />
-                {addr.city}, {addr.province} {addr.zip}
-              </div>
+      {/* Summary */}
+      {order && (
+        <div className="mb-4 bg-gray-50 rounded-lg p-3">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Summary</div>
+          <div className="space-y-1.5 text-sm">
+            {retailTotal > 0 && Math.abs(retailTotal - orderTotal) > 0.01 && (
+              <div className="flex justify-between"><span className="text-gray-400">Retail</span><span className="text-gray-600">${retailTotal.toFixed(2)}</span></div>
             )}
-            {customerOrders && customerSpent && (
-              <div className="text-xs text-gray-400 mt-1 pt-1.5 border-t border-gray-200">
-                {customerOrders} orders · ${parseFloat(customerSpent).toFixed(0)} lifetime
-              </div>
+            {discount > 0 && <div className="flex justify-between"><span className="text-gray-400">Discount</span><span className="text-red-500">-${discount.toFixed(2)}</span></div>}
+            <div className="flex justify-between"><span className="text-gray-500 font-medium">Subtotal</span><span className="text-gray-900 font-medium">${orderTotal.toFixed(2)}</span></div>
+            {restockFee > 0.01 && r.type === 'refund' && (
+              <div className="flex justify-between"><span className="text-gray-400">Restocking fee</span><span className="text-red-500">-${restockFee.toFixed(2)}</span></div>
             )}
+            <div className="flex justify-between pt-1.5 border-t border-gray-200">
+              <span className="text-gray-900 font-semibold">Return value</span>
+              <span className="text-gray-900 font-bold">${(r.subtotal || 0).toFixed(2)}</span>
+            </div>
           </div>
         </div>
       )}
-      </div>
+
+      {/* Customer */}
+      {cust && (
+        <div className="mb-4">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Customer</div>
+          <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+            <div className="font-medium text-gray-900">{cust.name}</div>
+            <div className="text-gray-600">{cust.email}</div>
+            {cust.phone && <div className="text-gray-500">{cust.phone}</div>}
+            {addr && <div className="text-gray-400 text-xs pt-1">{addr.address1}{addr.address2 ? `, ${addr.address2}` : ''}<br/>{addr.city}, {addr.provinceCode} {addr.zip}</div>}
+            <div className="text-xs text-gray-400 pt-1.5 border-t border-gray-200 flex gap-3">
+              <span>{cust.orderCount} order{cust.orderCount !== '1' ? 's' : ''}</span>
+              <span>${parseFloat(cust.totalSpent).toFixed(0)} lifetime</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Outbound Shipping */}
+      {ful && (
+        <div className="mb-4">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Outbound Shipping</div>
+          <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+            <div className="flex justify-between"><span className="text-gray-400">Status</span><span className={`font-medium ${ful.deliveredAt ? 'text-emerald-600' : 'text-blue-600'}`}>{ful.deliveredAt ? 'Delivered' : ful.status}</span></div>
+            {ful.deliveredAt && <div className="flex justify-between"><span className="text-gray-400">Delivered</span><span className="text-gray-700">{fmtShort(ful.deliveredAt)}</span></div>}
+            {ful.tracking && <div className="flex justify-between"><span className="text-gray-400">Tracking</span><a href={ful.tracking.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs truncate max-w-[200px]">{ful.tracking.company} {ful.tracking.number}</a></div>}
+          </div>
+        </div>
+      )}
+
+      {/* Return Shipping */}
+      {(r.tracking_number || r.tracking_status) && (
+        <div className="mb-4">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Shipping</div>
+          <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+            <div className="flex justify-between"><span className="text-gray-400">Status</span><span className={`font-medium ${r.tracking_status === 'Delivered' ? 'text-emerald-600' : 'text-blue-600'}`}>{r.tracking_status || 'Unknown'}</span></div>
+            {r.delivered_to_us && <div className="flex justify-between"><span className="text-gray-400">Received</span><span className="text-gray-700">{fmtShort(r.delivered_to_us)}</span></div>}
+            {r.tracking_number && <div className="flex justify-between"><span className="text-gray-400">Tracking</span><span className="text-gray-600 text-xs truncate max-w-[200px]">{r.tracking_number}</span></div>}
+          </div>
+        </div>
+      )}
 
       {/* Timeline */}
-      {timelineItems.length > 0 && (
-        <div className="mb-5">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2.5">Timeline</div>
-          <div className="space-y-0">
-            {timelineItems.map((t, i) => (
-              <div key={i} className="flex items-start gap-3 py-1.5">
-                <div className="flex flex-col items-center flex-shrink-0 pt-1">
-                  <div className={`w-2 h-2 rounded-full ${t.color}`} />
-                  {i < timelineItems.length - 1 && <div className="w-px h-4 bg-gray-200 mt-0.5" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-xs text-gray-700 font-medium">{t.label}</span>
-                    <span className="text-[11px] text-gray-400">{fmt(t.date)}</span>
-                  </div>
-                  {t.detail && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{t.detail}</div>}
-                </div>
-              </div>
-            ))}
-          </div>
+      <div className="mb-5">
+        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Timeline</div>
+        <div className="space-y-0">
+          {r.return_requested && <TLRow date={r.return_requested} label="Return requested" color="bg-gray-300" />}
+          {ful?.deliveredAt && <TLRow date={ful.deliveredAt} label="Order delivered" color="bg-blue-300" />}
+          {r.label_sent && <TLRow date={r.label_sent} label="Return label sent" color="bg-blue-400" />}
+          {r.customer_shipped && <TLRow date={r.customer_shipped} label="Customer shipped" color="bg-blue-500" detail={r.tracking_number || undefined} />}
+          {r.delivered_to_us && <TLRow date={r.delivered_to_us} label="Return received" color="bg-emerald-400" />}
+          {r.processed_at && <TLRow date={r.processed_at} label={r.outcome === 'credit' ? 'Credit issued' : r.outcome === 'refund' ? 'Refund issued' : r.outcome === 'rejected' ? 'Rejected' : 'Processed'} color={r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600'} detail={r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : undefined} last />}
         </div>
-      )}
+      </div>
 
-      {/* Tracking badge */}
-      {r.tracking_status && r.status === 'shipping' && (
-        <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-3 mb-5 text-center">
-          <div className="text-sm font-medium text-sky-700">{r.tracking_status}</div>
-          {r.tracking_number && <div className="text-xs text-sky-500 mt-0.5">{r.tracking_number}</div>}
-        </div>
-      )}
-
-      {/* ── Actions ── */}
+      {/* Actions */}
       {(r.status === 'inbox' || r.status === 'old') && !showReject && (
         <div className="flex flex-col gap-2.5 mb-5">
           {r.type === 'credit' || r.type === 'exchange' ? (
@@ -562,45 +567,38 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
               Issue Credit{r.subtotal > 0 ? ` · $${r.subtotal.toFixed(2)}` : ''}
             </button>
           ) : (
-            <button onClick={() => doAction(r.id, 'refund', `Approve $${(r.subtotal || 0).toFixed(2)} refund for ${r.customer_name}?`, r.subtotal, undefined, r.imported_from === 'redo')}
+            <button onClick={() => doAction(r.id, 'refund', `Refund $${(r.subtotal || 0).toFixed(2)} to ${r.customer_name}?`, r.subtotal, undefined, r.imported_from === 'redo')}
               className="w-full py-4 bg-gray-900 text-white rounded-xl text-base font-semibold hover:bg-gray-800 active:bg-gray-700 transition-colors">
               Approve Refund{r.subtotal > 0 ? ` · $${r.subtotal.toFixed(2)}` : ''}
             </button>
           )}
-          <button onClick={() => setShowReject(true)} className="w-full py-4 bg-white text-red-600 border-2 border-red-200 rounded-xl text-base font-semibold hover:bg-red-50 active:bg-red-100 transition-colors">
-            Reject
-          </button>
+          <button onClick={() => setShowReject(true)} className="w-full py-3 bg-white text-red-500 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors">Reject</button>
         </div>
       )}
 
       {showReject && (
         <div className="mb-5">
-          <div className="text-sm font-semibold text-gray-900 mb-3">Reason</div>
+          <div className="text-sm font-semibold text-gray-900 mb-3">Rejection Reason</div>
           <div className="flex flex-col gap-1.5">
             {REJECT_REASONS.map(reason => (
               <button key={reason} onClick={() => setRejectReason(reason)}
-                className={`p-3 rounded-xl text-left text-sm transition-colors ${rejectReason === reason ? 'bg-red-50 border-2 border-red-300 text-red-700 font-semibold' : 'bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100'}`}>
+                className={`p-3 rounded-xl text-left text-sm ${rejectReason === reason ? 'bg-red-50 border-2 border-red-300 text-red-700 font-semibold' : 'bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100'}`}>
                 {reason}
               </button>
             ))}
           </div>
-          {rejectReason && (
-            <button onClick={() => doAction(r.id, 'reject', `Reject return from ${r.customer_name}?`, undefined, rejectReason)}
-              className="w-full mt-4 py-4 bg-red-600 text-white rounded-xl text-sm font-semibold">Reject — {rejectReason}</button>
-          )}
+          {rejectReason && <button onClick={() => doAction(r.id, 'reject', `Reject return from ${r.customer_name}?`, undefined, rejectReason)} className="w-full mt-4 py-4 bg-red-600 text-white rounded-xl text-sm font-semibold">Reject — {rejectReason}</button>}
           <button onClick={() => { setShowReject(false); setRejectReason(''); }} className="w-full mt-2 py-3 text-gray-400 text-sm">Cancel</button>
         </div>
       )}
 
       {r.status === 'shipping' && (
         <button onClick={() => doAction(r.id, 'received', `Mark as received from ${r.customer_name}?`)}
-          className="w-full py-4 bg-white border-2 border-gray-200 text-gray-900 rounded-xl text-base font-semibold hover:bg-gray-50 active:bg-gray-100 transition-colors mb-5">
-          Mark as Received
-        </button>
+          className="w-full py-4 bg-white border-2 border-gray-200 text-gray-900 rounded-xl text-base font-semibold hover:bg-gray-50 transition-colors mb-5">Mark as Received</button>
       )}
 
       {r.status === 'done' && (
-        <div className={`rounded-xl p-5 text-center mb-5 border ${r.outcome === 'rejected' ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
+        <div className={`rounded-xl p-4 text-center mb-5 border ${r.outcome === 'rejected' ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
           <div className={`text-sm font-semibold ${r.outcome === 'rejected' ? 'text-red-600' : 'text-emerald-600'}`}>
             {r.outcome === 'credit' && `Credit Issued${r.final_amount > 0 ? ` · $${r.final_amount.toFixed(2)}` : ''}`}
             {r.outcome === 'refund' && `Refunded${r.final_amount > 0 ? ` · $${r.final_amount.toFixed(2)}` : ''}`}
@@ -609,15 +607,26 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
           {r.processed_at && <div className="text-xs text-gray-400 mt-1">{fmt(r.processed_at)}</div>}
         </div>
       )}
+
+      {order?.gateway && <div className="text-[11px] text-gray-300 text-center">Paid via {order.gateway.replace('_', ' ')}</div>}
     </div>
   );
 }
 
-function InfoBox({ label, value }: { label: string; value: string }) {
+function TLRow({ date, label, color, detail, last }: { date: string; label: string; color: string; detail?: string; last?: boolean }) {
   return (
-    <div className="bg-gray-50 rounded-lg p-3">
-      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">{label}</div>
-      <div className="text-sm font-medium text-gray-800 truncate">{value}</div>
+    <div className="flex items-start gap-3 py-1.5">
+      <div className="flex flex-col items-center flex-shrink-0 pt-1">
+        <div className={`w-2 h-2 rounded-full ${color}`} />
+        {!last && <div className="w-px h-4 bg-gray-200 mt-0.5" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs text-gray-700 font-medium">{label}</span>
+          <span className="text-[11px] text-gray-400">{fmt(date)}</span>
+        </div>
+        {detail && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{detail}</div>}
+      </div>
     </div>
   );
 }

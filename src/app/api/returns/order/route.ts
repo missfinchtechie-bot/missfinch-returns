@@ -1,28 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getOrder } from '@/lib/shopify';
+import { shopifyGraphQL } from '@/lib/shopify';
 
 // GET /api/returns/order?order_number=#8657
-// Fetches live Shopify order data for the detail panel
 export async function GET(req: NextRequest) {
   const orderNumber = new URL(req.url).searchParams.get('order_number');
-  if (!orderNumber) {
-    return NextResponse.json({ error: 'Missing order_number' }, { status: 400 });
-  }
+  if (!orderNumber) return NextResponse.json({ error: 'Missing order_number' }, { status: 400 });
 
   try {
-    const order = await getOrder(orderNumber);
-    if (!order) {
-      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
+    const query = `
+      query GetOrder($q: String!) {
+        orders(first: 1, query: $q) {
+          edges {
+            node {
+              id name createdAt
+              totalPriceSet { shopMoney { amount } }
+              subtotalPriceSet { shopMoney { amount } }
+              totalDiscountsSet { shopMoney { amount } }
+              totalShippingPriceSet { shopMoney { amount } }
+              currentTotalPriceSet { shopMoney { amount } }
+              refundable
+              discountCodes
+              tags
+              customer {
+                id displayName email phone numberOfOrders
+                amountSpent { amount }
+              }
+              shippingAddress {
+                name address1 address2 city provinceCode zip country phone
+              }
+              lineItems(first: 20) {
+                edges {
+                  node {
+                    id title variantTitle sku quantity
+                    originalUnitPriceSet { shopMoney { amount } }
+                    discountedUnitPriceSet { shopMoney { amount } }
+                    totalDiscountSet { shopMoney { amount } }
+                    image { url(transform: {maxWidth: 200}) }
+                  }
+                }
+              }
+              fulfillments(first: 10) {
+                trackingInfo { number url company }
+                deliveredAt createdAt status
+              }
+              transactions(first: 10) {
+                kind status gateway
+                amountSet { shopMoney { amount } }
+                createdAt
+              }
+              paymentGatewayNames
+            }
+          }
+        }
+      }
+    `;
 
-    // Flatten for frontend consumption
+    const data = await shopifyGraphQL(query, { q: `name:${orderNumber}` });
+    const order = data.orders.edges[0]?.node;
+    if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+
+    // Find successful capture transaction
+    const capture = order.transactions?.find((t: { kind: string; status: string }) => t.kind === 'CAPTURE' && t.status === 'SUCCESS');
+
     return NextResponse.json({
       id: order.id,
       name: order.name,
       createdAt: order.createdAt,
       total: order.totalPriceSet?.shopMoney?.amount,
+      subtotal: order.subtotalPriceSet?.shopMoney?.amount,
+      totalDiscount: order.totalDiscountsSet?.shopMoney?.amount,
+      shipping: order.totalShippingPriceSet?.shopMoney?.amount,
       currentTotal: order.currentTotalPriceSet?.shopMoney?.amount,
       refundable: order.refundable,
+      discountCodes: order.discountCodes || [],
+      tags: order.tags || [],
+      gateway: capture?.gateway || order.paymentGatewayNames?.[0] || null,
       customer: order.customer ? {
         id: order.customer.id,
         name: order.customer.displayName,
@@ -31,34 +83,29 @@ export async function GET(req: NextRequest) {
         orderCount: order.customer.numberOfOrders,
         totalSpent: order.customer.amountSpent?.amount,
       } : null,
-      shippingAddress: order.shippingAddress ? {
-        name: order.shippingAddress.name,
-        address1: order.shippingAddress.address1,
-        address2: order.shippingAddress.address2,
-        city: order.shippingAddress.city,
-        province: order.shippingAddress.provinceCode,
-        zip: order.shippingAddress.zip,
-        country: order.shippingAddress.country,
-        phone: order.shippingAddress.phone,
-      } : null,
-      lineItems: order.lineItems?.edges?.map((e: { node: { id: string; title: string; variantTitle: string; sku: string; quantity: number; discountedUnitPriceSet: { shopMoney: { amount: string } }; image: { url: string } | null } }) => ({
-        id: e.node.id,
-        title: e.node.title,
-        variant: e.node.variantTitle,
-        sku: e.node.sku,
-        quantity: e.node.quantity,
-        price: e.node.discountedUnitPriceSet?.shopMoney?.amount,
-        image: e.node.image?.url,
-      })) || [],
-      fulfillments: order.fulfillments?.map((f: { trackingInfo: { number: string; company: string; url: string }[]; deliveredAt: string }) => ({
-        tracking: f.trackingInfo?.[0],
+      shippingAddress: order.shippingAddress,
+      lineItems: order.lineItems?.edges?.map((e: { node: Record<string, unknown> }) => {
+        const n = e.node as { id: string; title: string; variantTitle: string; sku: string; quantity: number; originalUnitPriceSet: { shopMoney: { amount: string } }; discountedUnitPriceSet: { shopMoney: { amount: string } }; totalDiscountSet: { shopMoney: { amount: string } }; image: { url: string } | null };
+        return {
+          id: n.id,
+          title: n.title,
+          variant: n.variantTitle,
+          sku: n.sku,
+          quantity: n.quantity,
+          retailPrice: n.originalUnitPriceSet?.shopMoney?.amount,
+          paidPrice: n.discountedUnitPriceSet?.shopMoney?.amount,
+          discount: n.totalDiscountSet?.shopMoney?.amount,
+          image: n.image?.url,
+        };
+      }) || [],
+      fulfillments: order.fulfillments?.map((f: { trackingInfo: { number: string; company: string; url: string }[]; deliveredAt: string; createdAt: string; status: string }) => ({
+        tracking: f.trackingInfo?.[0] || null,
         deliveredAt: f.deliveredAt,
+        shippedAt: f.createdAt,
+        status: f.status,
       })) || [],
-      gateways: order.paymentGatewayNames,
-      tags: order.tags,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to fetch order';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed' }, { status: 500 });
   }
 }
