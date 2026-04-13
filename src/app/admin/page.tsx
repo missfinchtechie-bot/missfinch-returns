@@ -385,9 +385,8 @@ export default function AdminDashboard() {
 
 
 /* ─── Detail Panel Component ─── */
-
 type OrderData = {
-  name: string; createdAt: string; total: string; subtotal: string; totalDiscount: string;
+  id: string; name: string; createdAt: string; total: string; subtotal: string; totalDiscount: string;
   shipping: string; currentTotal: string; refundable: boolean; discountCodes: string[];
   gateway: string; tags: string[]; channel: string | null;
   customer: { id: string; name: string; email: string; phone: string; orderCount: string; totalSpent: string } | null;
@@ -395,6 +394,8 @@ type OrderData = {
   lineItems: { id: string; title: string; variant: string; sku: string; quantity: number; retailPrice: string; paidPrice: string; discount: string; image: string | null }[];
   fulfillments: { tracking: { number: string; company: string; url: string } | null; deliveredAt: string; shippedAt: string; status: string }[];
 };
+type CustomerHistory = { totalReturns: number; returnsIn90Days: number; totalReturnValue: number };
+type Note = { id: string; detail: string; event_date: string };
 
 function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, doAction, onClose }: {
   r: Return; showReject: boolean; setShowReject: (v: boolean) => void; rejectReason: string; setRejectReason: (v: string) => void;
@@ -402,6 +403,10 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
 }) {
   const [order, setOrder] = useState<OrderData | null>(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
+  const [history, setHistory] = useState<CustomerHistory | null>(null);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [newNote, setNewNote] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     setLoadingOrder(true);
@@ -410,7 +415,22 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         .then(res => res.json()).then(d => { if (!d.error) setOrder(d); })
         .catch(() => {}).finally(() => setLoadingOrder(false));
     } else { setLoadingOrder(false); }
-  }, [r.order_number]);
+    fetch(`/api/returns/history?customer_name=${encodeURIComponent(r.customer_name)}`)
+      .then(res => res.json()).then(d => { if (!d.error) setHistory(d); }).catch(() => {});
+    fetch(`/api/returns/notes?return_id=${r.id}`)
+      .then(res => res.json()).then(d => setNotes(d.notes || [])).catch(() => {});
+  }, [r.id, r.order_number, r.customer_name]);
+
+  const saveNote = async () => {
+    if (!newNote.trim()) return;
+    setSavingNote(true);
+    await fetch('/api/returns/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ return_id: r.id, note: newNote }) });
+    const res = await fetch(`/api/returns/notes?return_id=${r.id}`);
+    const d = await res.json();
+    setNotes(d.notes || []);
+    setNewNote('');
+    setSavingNote(false);
+  };
 
   const tb = typeBadge(r.type);
   const si = statusInfo(r);
@@ -422,17 +442,53 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
   const discount = parseFloat(order?.totalDiscount || '0');
   const restockFee = orderTotal > 0 && r.subtotal > 0 ? orderTotal - r.subtotal : 0;
 
+  // Intelligence calculations
+  const now = new Date();
+  const deliveredDate = ful?.deliveredAt ? new Date(ful.deliveredAt) : null;
+  const requestedDate = r.return_requested ? new Date(r.return_requested) : null;
+  const daysInInbox = r.delivered_to_us ? Math.floor((now.getTime() - new Date(r.delivered_to_us).getTime()) / 86400000) : null;
+  const daysToReturn = deliveredDate && requestedDate ? Math.floor((requestedDate.getTime() - deliveredDate.getTime()) / 86400000) : null;
+  const returnWindowDays = r.type === 'refund' ? 7 : 14;
+  const daysInWindow = deliveredDate && requestedDate ? Math.floor((requestedDate.getTime() - deliveredDate.getTime()) / 86400000) : null;
+  const withinWindow = daysInWindow !== null ? daysInWindow <= returnWindowDays : null;
+  const isNewCustomer = cust?.orderCount === '1';
+  const hasDiscount = (order?.discountCodes?.length || 0) > 0;
+  const returnRate = history && cust ? (history.totalReturns / Math.max(parseInt(cust.orderCount || '1'), 1) * 100) : null;
+  const customerSpent = cust ? parseFloat(cust.totalSpent || '0') : 0;
+  const returnPctOfLTV = customerSpent > 0 ? ((r.subtotal || 0) / customerSpent * 100) : null;
+
+  // Risk signals
+  const risks: { label: string; level: 'info' | 'warn' | 'danger' }[] = [];
+  if (isNewCustomer) risks.push({ label: 'New customer — 1 order on file', level: 'info' });
+  if (history && history.returnsIn90Days >= 3) risks.push({ label: `${history.returnsIn90Days} returns in 90 days`, level: 'danger' });
+  if (returnRate !== null && returnRate >= 50) risks.push({ label: `${returnRate.toFixed(0)}% return rate`, level: 'warn' });
+  if (daysToReturn !== null && daysToReturn <= 1) risks.push({ label: 'Returned within 1 day of delivery', level: 'warn' });
+  if (withinWindow === false) risks.push({ label: `Outside ${returnWindowDays}-day return window`, level: 'danger' });
+  if (hasDiscount && r.type === 'refund') risks.push({ label: 'Discount code used on refund return', level: 'info' });
+
+  // Shopify admin link
+  const shopifyOrderId = order?.id?.split('/').pop();
+  const shopifyLink = shopifyOrderId ? `https://admin.shopify.com/store/missfinchnyc/orders/${shopifyOrderId}` : null;
+
   return (
     <div className="p-5">
-      {/* Header */}
-      <div className="flex justify-between items-start mb-4">
+      {/* ── Header ── */}
+      <div className="flex justify-between items-start mb-3">
         <div>
           <div className="text-lg font-bold text-gray-900">{r.customer_name}</div>
-          <div className="text-sm text-gray-400">{r.order_number} · Ordered {order ? fmtShort(order.createdAt) : '...'}</div>
+          <div className="text-sm text-gray-400">
+            {r.order_number} · Ordered {order ? fmtShort(order.createdAt) : '...'}
+            {shopifyLink && <a href={shopifyLink} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-blue-500 hover:text-blue-600">↗</a>}
+          </div>
           {r.return_requested && <div className="text-xs text-gray-400">Return created {fmtShort(r.return_requested)}</div>}
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            {order?.channel && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{order.channel}</span>}
-            <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded">via {r.imported_from === 'redo' ? 'Redo' : 'Portal'}</span>
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {order?.channel && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{order.channel}</span>}
+            <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">via {r.imported_from === 'redo' ? 'Redo' : 'Portal'}</span>
+            {daysInInbox !== null && (r.status === 'inbox' || r.status === 'old') && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded ${daysInInbox > 7 ? 'bg-red-50 text-red-500' : daysInInbox > 3 ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>
+                {daysInInbox === 0 ? 'Received today' : `In inbox ${daysInInbox}d`}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -442,25 +498,35 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       </div>
 
+      {/* ── Risk / Intelligence ── */}
+      {risks.length > 0 && (
+        <div className="mb-3 space-y-1">
+          {risks.map((risk, i) => (
+            <div key={i} className={`text-xs px-3 py-1.5 rounded-lg ${risk.level === 'danger' ? 'bg-red-50 text-red-600' : risk.level === 'warn' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-600'}`}>
+              {risk.level === 'danger' ? '🔴' : risk.level === 'warn' ? '🟡' : 'ℹ️'} {risk.label}
+            </div>
+          ))}
+        </div>
+      )}
+
       {r.is_flagged && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm">
           <span className="font-semibold text-red-600">⚠ Flagged</span>
           {r.flag_reason && <span className="text-red-600 ml-1">— {r.flag_reason}</span>}
         </div>
       )}
 
-      {/* Return reason + discount code */}
-      <div className="space-y-1.5 mb-4">
+      {/* ── Reason + discount ── */}
+      <div className="space-y-1 mb-4">
         {r.reason && <div className="text-xs text-gray-500"><span className="text-gray-400">Reason:</span> {r.reason}</div>}
-        {order?.discountCodes?.length ? <div className="text-xs text-gray-400">Discount code: <span className="font-medium text-gray-600">{order.discountCodes.join(', ')}</span></div> : null}
+        {order?.discountCodes?.length ? <div className="text-xs text-gray-400">Discount: <span className="font-medium text-gray-600">{order.discountCodes.join(', ')}</span></div> : null}
+        {daysToReturn !== null && <div className="text-xs text-gray-400">Returned {daysToReturn} day{daysToReturn !== 1 ? 's' : ''} after delivery {withinWindow !== null && <span className={withinWindow ? 'text-emerald-500' : 'text-red-500'}>({withinWindow ? `within ${returnWindowDays}d window` : 'expired'})</span>}</div>}
       </div>
 
-      {/* Return Items */}
+      {/* ── Return Items ── */}
       <div className="mb-4">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Items</div>
-        {loadingOrder ? (
-          <div className="text-xs text-gray-300 py-4 text-center">Loading...</div>
-        ) : (
+        {loadingOrder ? <div className="text-xs text-gray-300 py-4 text-center">Loading...</div> : (
           <div className="space-y-2">
             {(order?.lineItems || []).map((item, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-lg p-3">
@@ -472,7 +538,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
                   </div>
                 </div>
                 <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
-                  <div className="flex justify-between text-xs"><span className="text-gray-400">Retail price</span><span className="text-gray-700">${parseFloat(item.retailPrice).toFixed(2)}</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-gray-400">Retail</span><span className="text-gray-700">${parseFloat(item.retailPrice).toFixed(2)}</span></div>
                   {parseFloat(item.discount) > 0 && <div className="flex justify-between text-xs"><span className="text-gray-400">Discount</span><span className="text-red-500">-${parseFloat(item.discount).toFixed(2)}</span></div>}
                 </div>
               </div>
@@ -481,7 +547,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         )}
       </div>
 
-      {/* Summary */}
+      {/* ── Summary ── */}
       {order && (
         <div className="mb-4 bg-gray-50 rounded-lg p-3">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Summary</div>
@@ -491,9 +557,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
             )}
             {discount > 0 && <div className="flex justify-between"><span className="text-gray-400">Discount</span><span className="text-red-500">-${discount.toFixed(2)}</span></div>}
             <div className="flex justify-between"><span className="text-gray-500 font-medium">Subtotal</span><span className="text-gray-900 font-medium">${orderTotal.toFixed(2)}</span></div>
-            {restockFee > 0.01 && r.type === 'refund' && (
-              <div className="flex justify-between"><span className="text-gray-400">Restocking fee</span><span className="text-red-500">-${restockFee.toFixed(2)}</span></div>
-            )}
+            {restockFee > 0.01 && r.type === 'refund' && <div className="flex justify-between"><span className="text-gray-400">Restocking fee</span><span className="text-red-500">-${restockFee.toFixed(2)}</span></div>}
             <div className="flex justify-between pt-1.5 border-t border-gray-200">
               <span className="text-gray-900 font-semibold">Return value</span>
               <span className="text-gray-900 font-bold">${(r.subtotal || 0).toFixed(2)}</span>
@@ -502,7 +566,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       )}
 
-      {/* Customer */}
+      {/* ── Customer ── */}
       {cust && (
         <div className="mb-4">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Customer</div>
@@ -511,15 +575,17 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
             <div className="text-gray-600">{cust.email}</div>
             {cust.phone && <div className="text-gray-500">{cust.phone}</div>}
             {addr && <div className="text-gray-400 text-xs pt-1">{addr.address1}{addr.address2 ? `, ${addr.address2}` : ''}<br/>{addr.city}, {addr.provinceCode} {addr.zip}</div>}
-            <div className="text-xs text-gray-400 pt-1.5 border-t border-gray-200 flex gap-3">
+            <div className="text-xs text-gray-400 pt-1.5 border-t border-gray-200 flex gap-3 flex-wrap">
               <span>{cust.orderCount} order{cust.orderCount !== '1' ? 's' : ''}</span>
-              <span>${parseFloat(cust.totalSpent).toFixed(0)} lifetime</span>
+              <span>${customerSpent.toFixed(0)} lifetime</span>
+              {history && <span>{history.totalReturns} return{history.totalReturns !== 1 ? 's' : ''} (${history.totalReturnValue.toFixed(0)})</span>}
+              {returnPctOfLTV !== null && <span>{returnPctOfLTV.toFixed(0)}% of LTV</span>}
             </div>
           </div>
         </div>
       )}
 
-      {/* Outbound Shipping */}
+      {/* ── Outbound Shipping ── */}
       {ful && (
         <div className="mb-4">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Outbound Shipping</div>
@@ -531,7 +597,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       )}
 
-      {/* Return Shipping */}
+      {/* ── Return Shipping ── */}
       {(r.tracking_number || r.tracking_status) && (
         <div className="mb-4">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Shipping</div>
@@ -543,8 +609,8 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       )}
 
-      {/* Timeline */}
-      <div className="mb-5">
+      {/* ── Timeline ── */}
+      <div className="mb-4">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Timeline</div>
         <div className="space-y-0">
           {r.return_requested && <TLRow date={r.return_requested} label="Return requested" color="bg-gray-300" />}
@@ -552,11 +618,34 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
           {r.label_sent && <TLRow date={r.label_sent} label="Return label sent" color="bg-blue-400" />}
           {r.customer_shipped && <TLRow date={r.customer_shipped} label="Customer shipped" color="bg-blue-500" detail={r.tracking_number || undefined} />}
           {r.delivered_to_us && <TLRow date={r.delivered_to_us} label="Return received" color="bg-emerald-400" />}
-          {r.processed_at && <TLRow date={r.processed_at} label={r.outcome === 'credit' ? 'Credit issued' : r.outcome === 'refund' ? 'Refund issued' : r.outcome === 'rejected' ? 'Rejected' : 'Processed'} color={r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600'} detail={r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : undefined} last />}
+          {r.processed_at && <TLRow date={r.processed_at} label={r.outcome === 'credit' ? 'Credit issued' : r.outcome === 'refund' ? 'Refund issued' : r.outcome === 'rejected' ? 'Rejected' : 'Processed'} color={r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600'} detail={r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : undefined} last={notes.length === 0} />}
         </div>
       </div>
 
-      {/* Actions */}
+      {/* ── Notes ── */}
+      <div className="mb-5">
+        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Notes</div>
+        {notes.length > 0 && (
+          <div className="space-y-2 mb-3">
+            {notes.map(n => (
+              <div key={n.id} className="bg-amber-50 border border-amber-100 rounded-lg p-2.5">
+                <div className="text-xs text-gray-700">{n.detail}</div>
+                <div className="text-[10px] text-gray-400 mt-1">{fmt(n.event_date)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input value={newNote} onChange={e => setNewNote(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveNote()}
+            placeholder="Add a note..." className="flex-1 text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 bg-white" />
+          <button onClick={saveNote} disabled={savingNote || !newNote.trim()}
+            className={`px-3 py-2 text-xs font-medium rounded-lg ${newNote.trim() ? 'bg-gray-900 text-white hover:bg-gray-800' : 'bg-gray-100 text-gray-300'}`}>
+            {savingNote ? '...' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Actions ── */}
       {(r.status === 'inbox' || r.status === 'old') && !showReject && (
         <div className="flex flex-col gap-2.5 mb-5">
           {r.type === 'credit' || r.type === 'exchange' ? (
