@@ -170,7 +170,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7] max-w-lg mx-auto relative" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen bg-[#FAF9F7] max-w-3xl mx-auto relative" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-7 py-3 rounded-full text-base font-medium z-50 shadow-xl animate-fade-in">
@@ -308,7 +308,7 @@ export default function AdminDashboard() {
       {selected && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => { setSelected(null); setShowReject(false); }} />
-          <div className="absolute bottom-0 left-0 right-0 max-w-lg mx-auto bg-white rounded-t-2xl max-h-[88vh] overflow-y-auto shadow-2xl animate-slide-up">
+          <div className="absolute bottom-0 left-0 right-0 max-w-3xl mx-auto bg-white rounded-t-2xl max-h-[88vh] overflow-y-auto shadow-2xl animate-slide-up">
             <div className="text-center pt-3">
               <div className="w-9 h-1 bg-gray-200 rounded mx-auto" />
             </div>
