@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { issueStoreCredit, tagOrder, getOrder } from '@/lib/shopify';
 
-// GET /api/returns?status=inbox&search=sarah
+// GET /api/returns?status=inbox&search=sarah&sort=return_requested&dir=desc
 export async function GET(req: NextRequest) {
   const supabase = getServiceClient();
   const { searchParams } = new URL(req.url);
@@ -11,11 +11,17 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '50');
   const offset = (page - 1) * limit;
+  const sortKey = searchParams.get('sort') || 'return_requested';
+  const sortDir = searchParams.get('dir') === 'asc';
+
+  // Validate sort key
+  const allowedSorts = ['order_number', 'customer_name', 'subtotal', 'type', 'return_requested', 'status', 'item_count'];
+  const safeSort = allowedSorts.includes(sortKey) ? sortKey : 'return_requested';
 
   let query = supabase
     .from('returns')
     .select('*', { count: 'exact' })
-    .order('return_requested', { ascending: false })
+    .order(safeSort, { ascending: sortDir })
     .range(offset, offset + limit - 1);
 
   if (status && !search) {
