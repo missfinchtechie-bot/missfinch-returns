@@ -244,13 +244,13 @@ export default function AdminDashboard() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50/80 border-b border-gray-100">
-                  {(['order_number','customer_name','subtotal','type','status','return_requested','item_count'] as SortKey[]).map(k => (
-                    <th key={k} onClick={() => toggleSort(k)}
-                      className={`px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none whitespace-nowrap ${k === 'item_count' ? 'text-center' : 'text-left'}`}>
-                      {{order_number:'Order',customer_name:'Customer',subtotal:'Value',type:'Type',status:'Status',return_requested:'Date',item_count:'Items'}[k]}
-                      {sort.key === k && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                  ))}
+                  <th onClick={() => toggleSort('order_number')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Order{sort.key === 'order_number' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('customer_name')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Customer{sort.key === 'customer_name' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('subtotal')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Return ${sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('type')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Type{sort.key === 'type' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('status')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Status{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('return_requested')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Date{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('item_count')} className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center">Items{sort.key === 'item_count' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th className="px-3 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider text-left">Reason</th>
                 </tr>
               </thead>
@@ -558,6 +558,18 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         )}
       </div>
 
+      {/* ── Return Shipping (TOP — actionable info) ── */}
+      {(r.tracking_number || r.tracking_status || r.delivered_to_us) && (
+        <div className="mb-4">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Shipping</div>
+          <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+            <div className="flex justify-between"><span className="text-gray-400">Status</span><span className={`font-medium ${r.tracking_status === 'Delivered' ? 'text-emerald-600' : 'text-blue-600'}`}>{r.tracking_status || 'Unknown'}</span></div>
+            {r.delivered_to_us && <div className="flex justify-between"><span className="text-gray-400">Received</span><span className="text-gray-700">{fmtShort(r.delivered_to_us)}</span></div>}
+            {r.tracking_number && <div className="flex justify-between"><span className="text-gray-400">Tracking</span><span className="text-gray-600 text-xs truncate max-w-[200px]">{r.tracking_number}</span></div>}
+          </div>
+        </div>
+      )}
+
       {/* ── Summary ── */}
       {order && (
         <div className="mb-4 bg-gray-50 rounded-lg p-3">
@@ -567,7 +579,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
               <div className="flex justify-between"><span className="text-gray-400">Retail</span><span className="text-gray-600">${retailTotal.toFixed(2)}</span></div>
             )}
             {discount > 0 && <div className="flex justify-between"><span className="text-gray-400">Discount</span><span className="text-red-500">-${discount.toFixed(2)}</span></div>}
-            <div className="flex justify-between"><span className="text-gray-500 font-medium">Subtotal</span><span className="text-gray-900 font-medium">${orderTotal.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500 font-medium">Order total</span><span className="text-gray-900 font-medium">${orderTotal.toFixed(2)}</span></div>
             {restockFee > 0.01 && r.type === 'refund' && <div className="flex justify-between"><span className="text-gray-400">Restocking fee</span><span className="text-red-500">-${restockFee.toFixed(2)}</span></div>}
             <div className="flex justify-between pt-1.5 border-t border-gray-200">
               <span className="text-gray-900 font-semibold">Return value</span>
@@ -596,7 +608,30 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       )}
 
-      {/* ── Outbound Shipping ── */}
+      {/* ── Full Lifecycle Timeline ── */}
+      <div className="mb-4">
+        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Timeline</div>
+        <div className="space-y-0">
+          {(() => {
+            const events: { date: string; label: string; color: string; detail?: string }[] = [];
+            if (order?.createdAt) events.push({ date: order.createdAt, label: 'Order placed', color: 'bg-gray-300', detail: `${order.channel || 'Online Store'} · $${parseFloat(order.total || '0').toFixed(2)}` });
+            if (ful?.shippedAt) events.push({ date: ful.shippedAt, label: 'Order shipped', color: 'bg-blue-300', detail: ful.tracking ? `${ful.tracking.company} ${ful.tracking.number}` : undefined });
+            if (ful?.deliveredAt) events.push({ date: ful.deliveredAt, label: 'Order delivered to customer', color: 'bg-blue-400' });
+            if (r.return_requested) events.push({ date: r.return_requested, label: 'Return requested', color: 'bg-amber-400', detail: r.reason || undefined });
+            if (r.label_sent) events.push({ date: r.label_sent, label: 'Return label sent', color: 'bg-amber-300' });
+            if (r.customer_shipped) events.push({ date: r.customer_shipped, label: 'Customer shipped return', color: 'bg-sky-400', detail: r.tracking_number || undefined });
+            if (r.delivered_to_us) events.push({ date: r.delivered_to_us, label: 'Return received at warehouse', color: 'bg-emerald-400' });
+            if (r.processed_at) {
+              const pLabel = r.outcome === 'credit' ? 'Store credit issued' : r.outcome === 'refund' ? 'Refund issued' : r.outcome === 'rejected' ? 'Return rejected' : 'Processed';
+              events.push({ date: r.processed_at, label: pLabel, color: r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600', detail: r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : (r.reject_reason || undefined) });
+            }
+            events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            return events.map((e, i) => <TLRow key={i} date={e.date} label={e.label} color={e.color} detail={e.detail} last={i === events.length - 1} />);
+          })()}
+        </div>
+      </div>
+
+      {/* ── Outbound Shipping + Carrier Scans ── */}
       {ful && (
         <div className="mb-4">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Outbound Shipping</div>
@@ -605,56 +640,11 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
             {ful.deliveredAt && <div className="flex justify-between"><span className="text-gray-400">Delivered</span><span className="text-gray-700">{fmtShort(ful.deliveredAt)}</span></div>}
             {ful.tracking && <div className="flex justify-between"><span className="text-gray-400">Tracking</span><a href={ful.tracking.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs truncate max-w-[200px]">{ful.tracking.company} {ful.tracking.number}</a></div>}
           </div>
-          {/* Carrier scan history */}
           {ful.events && ful.events.length > 0 && (
             <TrackingHistory events={ful.events} />
           )}
         </div>
       )}
-
-      {/* ── Return Shipping ── */}
-      {(r.tracking_number || r.tracking_status) && (
-        <div className="mb-4">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Shipping</div>
-          <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-            <div className="flex justify-between"><span className="text-gray-400">Status</span><span className={`font-medium ${r.tracking_status === 'Delivered' ? 'text-emerald-600' : 'text-blue-600'}`}>{r.tracking_status || 'Unknown'}</span></div>
-            {r.delivered_to_us && <div className="flex justify-between"><span className="text-gray-400">Received</span><span className="text-gray-700">{fmtShort(r.delivered_to_us)}</span></div>}
-            {r.tracking_number && <div className="flex justify-between"><span className="text-gray-400">Tracking</span><span className="text-gray-600 text-xs truncate max-w-[200px]">{r.tracking_number}</span></div>}
-          </div>
-        </div>
-      )}
-
-      {/* ── Full Lifecycle Timeline ── */}
-      <div className="mb-4">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Timeline</div>
-        <div className="space-y-0">
-          {(() => {
-            const events: { date: string; label: string; color: string; detail?: string }[] = [];
-            // Order placed
-            if (order?.createdAt) events.push({ date: order.createdAt, label: 'Order placed', color: 'bg-gray-300', detail: `${order.channel || 'Online Store'} · $${parseFloat(order.total || '0').toFixed(2)}` });
-            // Order shipped
-            if (ful?.shippedAt) events.push({ date: ful.shippedAt, label: 'Order shipped', color: 'bg-blue-300', detail: ful.tracking ? `${ful.tracking.company} ${ful.tracking.number}` : undefined });
-            // Order delivered
-            if (ful?.deliveredAt) events.push({ date: ful.deliveredAt, label: 'Order delivered to customer', color: 'bg-blue-400' });
-            // Return requested
-            if (r.return_requested) events.push({ date: r.return_requested, label: 'Return requested', color: 'bg-amber-400', detail: r.reason || undefined });
-            // Label sent
-            if (r.label_sent) events.push({ date: r.label_sent, label: 'Return label sent to customer', color: 'bg-amber-300' });
-            // Customer shipped (label scanned)
-            if (r.customer_shipped) events.push({ date: r.customer_shipped, label: 'Customer shipped return', color: 'bg-sky-400', detail: r.tracking_number || undefined });
-            // Return delivered to us
-            if (r.delivered_to_us) events.push({ date: r.delivered_to_us, label: 'Return delivered to warehouse', color: 'bg-emerald-400' });
-            // Processed
-            if (r.processed_at) {
-              const pLabel = r.outcome === 'credit' ? 'Store credit issued' : r.outcome === 'refund' ? 'Refund issued' : r.outcome === 'rejected' ? 'Return rejected' : 'Processed';
-              events.push({ date: r.processed_at, label: pLabel, color: r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600', detail: r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : (r.reject_reason || undefined) });
-            }
-            // Sort chronologically
-            events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            return events.map((e, i) => <TLRow key={i} date={e.date} label={e.label} color={e.color} detail={e.detail} last={i === events.length - 1} />);
-          })()}
-        </div>
-      </div>
 
       {/* ── Notes ── */}
       <div className="mb-5">
