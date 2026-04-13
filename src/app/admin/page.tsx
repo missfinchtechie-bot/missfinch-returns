@@ -384,10 +384,17 @@ export default function AdminDashboard() {
 }
 
 /* ─── Detail Panel Component ─── */
+type ReturnItem = { id: string; product_name: string; sku: string; size: string; price: number; image_url: string | null };
+
 function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, doAction, onClose }: {
   r: Return; showReject: boolean; setShowReject: (v: boolean) => void; rejectReason: string; setRejectReason: (v: string) => void;
   doAction: (id: string, action: string, label: string, amount?: number, extra?: string) => void; onClose: () => void;
 }) {
+  const [items, setItems] = useState<ReturnItem[]>([]);
+  useEffect(() => {
+    fetch(`/api/returns/items?return_id=${r.id}`).then(res => res.json()).then(d => setItems(d.items || [])).catch(() => {});
+  }, [r.id]);
+
   const tb = typeBadge(r.type);
   const si = statusInfo(r);
 
@@ -432,6 +439,29 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         <InfoBox label="Source" value={r.imported_from === 'redo' ? 'Redo' : 'Shopify'} />
         {r.total_fees > 0 && <InfoBox label="Fees" value={`$${r.total_fees.toFixed(2)}`} />}
         {r.bonus_amount > 0 && <InfoBox label="Bonus" value={`$${r.bonus_amount.toFixed(2)}`} />}
+      </div>
+
+      {/* Order Items */}
+      {items.length > 0 && (
+        <div className="mb-5">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2.5">Order Items</div>
+          <div className="space-y-2">
+            {items.map(item => (
+              <div key={item.id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900 truncate">{item.product_name}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {item.size && <span>{item.size}</span>}
+                    {item.size && item.sku && <span> · </span>}
+                    {item.sku && <span>{item.sku}</span>}
+                  </div>
+                </div>
+                <div className="text-sm font-semibold text-gray-900 flex-shrink-0">${item.price.toFixed(2)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       </div>
 
       {/* Timeline */}
