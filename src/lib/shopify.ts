@@ -1,11 +1,27 @@
-const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN!;
+import { getServiceClient } from './supabase';
+
+const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || 'missfinchnyc.myshopify.com';
 const API_VERSION = '2026-04';
 
 async function getAccessToken(): Promise<string> {
-  // For now use static token; will implement OAuth flow later
-  const token = process.env.SHOPIFY_ACCESS_TOKEN;
-  if (!token) throw new Error('SHOPIFY_ACCESS_TOKEN not set');
-  return token;
+  // First check env var (for local dev)
+  if (process.env.SHOPIFY_ACCESS_TOKEN) {
+    return process.env.SHOPIFY_ACCESS_TOKEN;
+  }
+
+  // Then check Supabase (where OAuth stores it)
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'shopify_access_token')
+    .single();
+
+  if (data?.value) {
+    return JSON.parse(data.value);
+  }
+
+  throw new Error('No Shopify access token. Visit /api/auth/shopify to connect.');
 }
 
 export async function shopifyGraphQL(query: string, variables?: Record<string, unknown>) {
