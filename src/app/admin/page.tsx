@@ -170,7 +170,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7] max-w-3xl mx-auto relative" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen bg-[#FAF9F7] w-full max-w-5xl mx-auto relative px-4 md:px-8" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-7 py-3 rounded-full text-base font-medium z-50 shadow-xl animate-fade-in">
@@ -179,14 +179,14 @@ export default function AdminDashboard() {
       )}
 
       {/* Header */}
-      <div className="bg-gray-900 px-5 pt-4 pb-3">
+      <div className="bg-gray-900 px-5 md:px-8 pt-4 pb-3">
         <div className="flex justify-between items-center mb-3">
           <div>
-            <span className="font-serif text-white text-lg font-medium tracking-wider">MISS FINCH</span>
-            <span className="text-gray-500 text-xs ml-2.5">Returns</span>
+            <span className="font-serif text-white text-lg md:text-xl font-medium tracking-wider">MISS FINCH</span>
+            <span className="text-gray-500 text-xs ml-2.5">Returns Dashboard</span>
           </div>
         </div>
-        <div className="relative">
+        <div className="relative max-w-xl">
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -255,15 +255,15 @@ export default function AdminDashboard() {
       </div>
 
       {/* Returns List */}
-      <div className="px-3 pb-24">
+      <div className="px-3 pb-24 grid grid-cols-1 md:grid-cols-2 gap-2">
         {loading && (
-          <div className="text-center py-16 text-gray-300">
+          <div className="text-center py-16 text-gray-300 col-span-full">
             <div className="text-3xl mb-2">⏳</div>
             <div>Loading...</div>
           </div>
         )}
         {!loading && returns.length === 0 && (
-          <div className="text-center py-16 text-gray-300">
+          <div className="text-center py-16 text-gray-300 col-span-full">
             <div className="text-3xl mb-2">{search ? '🔍' : '✓'}</div>
             <div>{search ? 'No results' : 'Nothing here'}</div>
           </div>
@@ -272,7 +272,7 @@ export default function AdminDashboard() {
           <div
             key={r.id}
             onClick={() => setSelected(r)}
-            className={`my-1.5 p-4 bg-white rounded-xl cursor-pointer active:bg-gray-50 transition-colors ${
+            className={`p-4 bg-white rounded-xl cursor-pointer active:bg-gray-50 transition-colors ${
               r.is_flagged ? 'border-2 border-red-200' : 'border border-gray-200'
             }`}
           >
@@ -308,7 +308,7 @@ export default function AdminDashboard() {
       {selected && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => { setSelected(null); setShowReject(false); }} />
-          <div className="absolute bottom-0 left-0 right-0 max-w-3xl mx-auto bg-white rounded-t-2xl max-h-[88vh] overflow-y-auto shadow-2xl animate-slide-up">
+          <div className="absolute bottom-0 left-0 right-0 max-w-2xl mx-auto bg-white rounded-t-2xl max-h-[88vh] overflow-y-auto shadow-2xl animate-slide-up">
             <div className="text-center pt-3">
               <div className="w-9 h-1 bg-gray-200 rounded mx-auto" />
             </div>
