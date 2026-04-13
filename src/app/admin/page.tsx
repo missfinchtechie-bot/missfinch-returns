@@ -12,7 +12,7 @@ type Return = {
   label_url: string | null; customer_shipped: string | null; label_sent: string | null;
 };
 
-type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number };
+type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; pendingRefund: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number };
 
 const TABS = [
   { key: 'all', label: 'All', icon: '☰' },
@@ -84,7 +84,7 @@ export default function AdminDashboard() {
   const [pwErr, setPwErr] = useState('');
   const [tab, setTab] = useState('inbox');
   const [returns, setReturns] = useState<Return[]>([]);
-  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0 });
+  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0, pendingRefund: 0, pendingCredit: 0, inTransitValue: 0, processedThisWeek: 0 });
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Return | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +97,7 @@ export default function AdminDashboard() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'return_requested', dir: 'desc' });
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const perPage = 50;
 
   useEffect(() => { fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
@@ -179,12 +180,14 @@ export default function AdminDashboard() {
     );
   }
 
+  const filteredReturns = typeFilter === 'all' ? returns : returns.filter(r => r.type === typeFilter);
+
   return (
     <div className="min-h-screen bg-[#F5F4F1]">
       {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-7 py-3 rounded-full text-sm font-medium z-[200] shadow-xl">{toast}</div>}
 
       {/* ─── Header ─── */}
-      <div className="bg-[#1a1a1a] px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
+      <div className="bg-[#1a1a1a] px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 flex-shrink-0">
           <h1 className="font-serif text-white text-lg font-medium tracking-wider">MISS FINCH</h1>
           <span className="text-gray-600 text-xs tracking-wider uppercase hidden sm:inline">Returns</span>
@@ -197,6 +200,34 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {/* ─── Stats Cards ─── */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
+              <div className="text-[10px] text-amber-600 uppercase tracking-wider font-medium">Pending Refunds</div>
+              <div className="text-lg font-bold text-amber-800">${stats.pendingRefund.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+              <div className="text-[10px] text-amber-500">{stats.inbox} return{stats.inbox !== 1 ? 's' : ''} waiting</div>
+            </div>
+            <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2.5">
+              <div className="text-[10px] text-emerald-600 uppercase tracking-wider font-medium">Pending Credits</div>
+              <div className="text-lg font-bold text-emerald-800">${stats.pendingCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+              <div className="text-[10px] text-emerald-500">store credit / exchange</div>
+            </div>
+            <div className="bg-sky-50 border border-sky-100 rounded-lg px-3 py-2.5">
+              <div className="text-[10px] text-sky-600 uppercase tracking-wider font-medium">In Transit</div>
+              <div className="text-lg font-bold text-sky-800">${stats.inTransitValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+              <div className="text-[10px] text-sky-500">{stats.shipping} return{stats.shipping !== 1 ? 's' : ''} shipping</div>
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">This Week</div>
+              <div className="text-lg font-bold text-gray-800">{stats.processedThisWeek}</div>
+              <div className="text-[10px] text-gray-400">processed in 7 days</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ─── Tabs ─── */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 flex items-center justify-between">
@@ -205,12 +236,12 @@ export default function AdminDashboard() {
               const count = t.key === 'all' ? stats.all : (stats[t.key as keyof Stats] || 0);
               const active = tab === t.key;
               return (
-                <button key={t.key} onClick={() => { setTab(t.key); setSearch(''); }}
+                <button key={t.key} onClick={() => { setTab(t.key); setSearch(''); setTypeFilter('all'); }}
                   className={`px-3 sm:px-4 py-3 text-sm whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
                     active ? 'border-[#1a1a1a] text-[#1a1a1a] font-semibold' : 'border-transparent text-gray-400 hover:text-gray-600'
                   }`}>
                   {t.label}
-                  {count > 0 && (
+                  {typeof count === 'number' && count > 0 && (
                     <span className={`text-[11px] min-w-[20px] text-center px-1.5 py-0.5 rounded-full font-semibold ${
                       t.key === 'inbox' ? 'bg-[#1a1a1a] text-white' : t.key === 'old' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-500'
                     }`}>{count}</span>
@@ -219,19 +250,28 @@ export default function AdminDashboard() {
               );
             })}
           </div>
-          <div className="hidden md:block text-sm text-gray-400 flex-shrink-0 pl-4">
-            <span className="font-semibold text-gray-600">{stats.inbox + stats.shipping + stats.old}</span> active
+          {/* Type filter */}
+          <div className="hidden md:flex items-center gap-2 flex-shrink-0 pl-4">
+            {['all', 'refund', 'credit', 'exchange'].map(t => (
+              <button key={t} onClick={() => setTypeFilter(t)}
+                className={`text-[11px] px-2 py-1 rounded-md transition-colors ${typeFilter === t ? 'bg-gray-900 text-white font-semibold' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}>
+                {t === 'all' ? 'All types' : t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       {/* ─── Content ─── */}
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
-        <p className="text-xs text-gray-400 mb-3">{search ? `Search: "${search}"` : TAB_DESC[tab]}</p>
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-400">{search ? `Search: "${search}"` : TAB_DESC[tab]}</p>
+          <span className="text-xs text-gray-400">{total} result{total !== 1 ? 's' : ''}</span>
+        </div>
 
         {loading && <div className="text-center py-20 text-gray-300 text-sm">Loading...</div>}
 
-        {!loading && returns.length === 0 && (
+        {!loading && filteredReturns.length === 0 && (
           <div className="text-center py-20 text-gray-300">
             <div className="text-3xl mb-2">{search ? '🔍' : '✓'}</div>
             <div className="text-sm">{search ? 'No results' : tab === 'inbox' ? 'No returns need action right now' : 'Nothing here'}</div>
@@ -239,7 +279,7 @@ export default function AdminDashboard() {
         )}
 
         {/* ─── Desktop Table ─── */}
-        {!loading && returns.length > 0 && (
+        {!loading && filteredReturns.length > 0 && (
           <div className="hidden md:block bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
             <table className="w-full">
               <thead>
@@ -255,12 +295,12 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {returns.map(r => {
+                {filteredReturns.map(r => {
                   const tb = typeBadge(r.type);
                   const si = statusInfo(r);
                   return (
                     <tr key={r.id} onClick={() => { setSelected(r); setShowReject(false); setRejectReason(''); }}
-                      className={`cursor-pointer transition-colors hover:bg-gray-50 ${r.is_flagged ? 'bg-red-50/40' : ''}`}>
+                      className={`cursor-pointer transition-colors hover:bg-gray-50 ${r.is_flagged ? 'bg-red-50/40' : r.subtotal >= 300 ? 'bg-amber-50/30' : ''}`}>
                       <td className="px-3 py-3 text-sm font-semibold text-gray-900 whitespace-nowrap">{r.order_number}</td>
                       <td className="px-3 py-3">
                         <div className="text-sm text-gray-900">{r.customer_name}</div>
@@ -281,9 +321,9 @@ export default function AdminDashboard() {
         )}
 
         {/* ─── Mobile Cards ─── */}
-        {!loading && returns.length > 0 && (
+        {!loading && filteredReturns.length > 0 && (
           <div className="md:hidden flex flex-col gap-2">
-            {returns.map(r => {
+            {filteredReturns.map(r => {
               const tb = typeBadge(r.type);
               const si = statusInfo(r);
               return (
