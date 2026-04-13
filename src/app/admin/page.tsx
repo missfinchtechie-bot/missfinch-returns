@@ -116,28 +116,57 @@ export default function AdminDashboard() {
     }
   }, [authed, tab, search, fetchReturns, fetchStats]);
 
-  const processReturn = async (id: string, action: string, extra?: string) => {
+  const [confirmAction, setConfirmAction] = useState<{ id: string; action: string; extra?: string; label: string; amount?: number } | null>(null);
+  const [processing, setProcessing] = useState(false);
+
+  const requestProcess = (id: string, action: string, label: string, amount?: number, extra?: string) => {
+    setConfirmAction({ id, action, extra, label, amount });
+  };
+
+  const confirmProcess = async () => {
+    if (!confirmAction) return;
+    setProcessing(true);
     const res = await fetch('/api/returns', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action, reject_reason: extra }),
+      body: JSON.stringify({
+        id: confirmAction.id,
+        action: confirmAction.action,
+        reject_reason: confirmAction.extra,
+        amount: confirmAction.amount,
+      }),
     });
 
     if (res.ok) {
+      const data = await res.json();
       const msgs: Record<string, string> = {
         credit: 'Store credit issued ✓',
         refund: 'Refund approved ✓',
         reject: 'Return rejected',
         received: 'Marked as received',
       };
-      setToast(msgs[action] || 'Done');
-      setTimeout(() => setToast(''), 2500);
+      let toastMsg = msgs[confirmAction.action] || 'Done';
+      if (data.shopify_error) {
+        toastMsg += ' (Shopify error — check logs)';
+      }
+      setToast(toastMsg);
+      setTimeout(() => setToast(''), 3000);
       setSelected(null);
       setShowReject(false);
       setRejectReason('');
+      setConfirmAction(null);
       fetchReturns();
       fetchStats();
+    } else {
+      const err = await res.json();
+      setToast(`Error: ${err.error || 'Something went wrong'}`);
+      setTimeout(() => setToast(''), 4000);
     }
+    setProcessing(false);
+  };
+
+  const cancelConfirm = () => {
+    setConfirmAction(null);
   };
 
   // Login screen
@@ -355,14 +384,14 @@ export default function AdminDashboard() {
                 <div className="flex flex-col gap-2.5 mb-5">
                   {selected.type === 'credit' ? (
                     <button
-                      onClick={() => processReturn(selected.id, 'credit')}
+                      onClick={() => requestProcess(selected.id, 'credit', `Issue $${selected.subtotal?.toFixed(2)} store credit to ${selected.customer_name}?`, selected.subtotal)}
                       className="w-full py-4 bg-green-600 text-white rounded-xl text-base font-semibold"
                     >
                       Issue Store Credit · ${selected.subtotal?.toFixed(2)}
                     </button>
                   ) : (
                     <button
-                      onClick={() => processReturn(selected.id, 'refund')}
+                      onClick={() => requestProcess(selected.id, 'refund', `Approve $${selected.subtotal?.toFixed(2)} refund for ${selected.customer_name}?`, selected.subtotal)}
                       className="w-full py-4 bg-gray-900 text-white rounded-xl text-base font-semibold"
                     >
                       Approve Refund · ${selected.subtotal?.toFixed(2)}
@@ -398,7 +427,7 @@ export default function AdminDashboard() {
                   </div>
                   {rejectReason && (
                     <button
-                      onClick={() => processReturn(selected.id, 'reject', rejectReason)}
+                      onClick={() => requestProcess(selected.id, 'reject', `Reject return from ${selected.customer_name}?`, undefined, rejectReason)}
                       className="w-full mt-4 py-4 bg-red-600 text-white rounded-xl text-base font-semibold"
                     >
                       Reject — {rejectReason}
@@ -419,7 +448,7 @@ export default function AdminDashboard() {
                   <div className="text-2xl mb-2">🚚</div>
                   <div className="text-base font-medium text-gray-500">{selected.tracking_status || 'In transit'}</div>
                   <button
-                    onClick={() => processReturn(selected.id, 'received')}
+                    onClick={() => requestProcess(selected.id, 'received', `Mark as received from ${selected.customer_name}?`)}
                     className="mt-4 w-full py-3 bg-white border border-gray-300 text-gray-900 rounded-xl text-sm font-medium"
                   >
                     Mark as Received
@@ -452,6 +481,44 @@ export default function AdminDashboard() {
                 className="w-full py-3.5 border border-gray-200 rounded-xl text-gray-400 text-base"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/60" onClick={cancelConfirm} />
+          <div className="relative bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center">
+            <div className="text-4xl mb-4">
+              {confirmAction.action === 'credit' ? '💚' : confirmAction.action === 'refund' ? '💰' : confirmAction.action === 'reject' ? '⚠️' : '📦'}
+            </div>
+            <div className="text-lg font-bold text-gray-900 mb-2">Are you sure?</div>
+            <div className="text-base text-gray-600 mb-6">{confirmAction.label}</div>
+            {confirmAction.action === 'credit' && (
+              <div className="text-xs text-gray-400 mb-4">This will issue real store credit to the customer&apos;s Shopify account.</div>
+            )}
+            {confirmAction.action === 'refund' && (
+              <div className="text-xs text-gray-400 mb-4">Order will be tagged in Shopify. Process the refund in Shopify admin.</div>
+            )}
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={confirmProcess}
+                disabled={processing}
+                className={`w-full py-4 rounded-xl text-base font-semibold text-white ${
+                  confirmAction.action === 'reject' ? 'bg-red-600' :
+                  confirmAction.action === 'credit' ? 'bg-green-600' : 'bg-gray-900'
+                } ${processing ? 'opacity-50' : ''}`}
+              >
+                {processing ? 'Processing...' : 'Yes, Confirm'}
+              </button>
+              <button
+                onClick={cancelConfirm}
+                className="w-full py-3 text-gray-400 text-base"
+              >
+                Cancel
               </button>
             </div>
           </div>
