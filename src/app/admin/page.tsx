@@ -453,17 +453,20 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
   const withinWindow = daysInWindow !== null ? daysInWindow <= returnWindowDays : null;
   const isNewCustomer = cust?.orderCount === '1';
   const hasDiscount = (order?.discountCodes?.length || 0) > 0;
-  const returnRate = history && cust ? (history.totalReturns / Math.max(parseInt(cust.orderCount || '1'), 1) * 100) : null;
   const customerSpent = cust ? parseFloat(cust.totalSpent || '0') : 0;
   const returnPctOfLTV = customerSpent > 0 ? ((r.subtotal || 0) / customerSpent * 100) : null;
 
   // Risk signals
   const risks: { label: string; level: 'info' | 'warn' | 'danger' }[] = [];
-  if (isNewCustomer) risks.push({ label: 'New customer — 1 order on file', level: 'info' });
+  if (isNewCustomer) risks.push({ label: 'New customer — 1st order on file', level: 'info' });
   if (history && history.returnsIn90Days >= 3) risks.push({ label: `${history.returnsIn90Days} returns in 90 days`, level: 'danger' });
-  if (returnRate !== null && returnRate >= 50) risks.push({ label: `${returnRate.toFixed(0)}% return rate`, level: 'warn' });
-  if (daysToReturn !== null && daysToReturn <= 1) risks.push({ label: 'Returned within 1 day of delivery', level: 'warn' });
-  if (withinWindow === false) risks.push({ label: `Outside ${returnWindowDays}-day return window`, level: 'danger' });
+  // Only show return rate for customers with 2+ orders (avoids misleading 100% on new customers)
+  if (!isNewCustomer && cust) {
+    const rate = (history?.totalReturns || 0) / Math.max(parseInt(cust.orderCount || '1'), 1) * 100;
+    if (rate >= 50) risks.push({ label: `${rate.toFixed(0)}% return rate (${history?.totalReturns} of ${cust.orderCount} orders)`, level: 'warn' });
+  }
+  if (daysToReturn !== null && daysToReturn >= 0 && daysToReturn <= 1) risks.push({ label: 'Returned within 1 day of delivery', level: 'warn' });
+  if (withinWindow === false && daysInWindow !== null && daysInWindow >= 0) risks.push({ label: `Outside ${returnWindowDays}-day return window (day ${daysInWindow})`, level: 'danger' });
   if (hasDiscount && r.type === 'refund') risks.push({ label: 'Discount code used on refund return', level: 'info' });
 
   // Shopify admin link
@@ -484,9 +487,9 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             {order?.channel && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{order.channel}</span>}
             <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">via {r.imported_from === 'redo' ? 'Redo' : 'Portal'}</span>
-            {daysInInbox !== null && (r.status === 'inbox' || r.status === 'old') && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded ${daysInInbox > 7 ? 'bg-red-50 text-red-500' : daysInInbox > 3 ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'}`}>
-                {daysInInbox === 0 ? 'Received today' : `In inbox ${daysInInbox}d`}
+            {daysInInbox !== null && daysInInbox >= 0 && (r.status === 'inbox' || r.status === 'old') && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded ${daysInInbox > 7 ? 'bg-red-50 text-red-500' : daysInInbox > 3 ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                {daysInInbox === 0 ? 'Received today' : `Received ${daysInInbox}d ago`}
               </span>
             )}
           </div>
@@ -520,7 +523,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       <div className="space-y-1 mb-4">
         {r.reason && <div className="text-xs text-gray-500"><span className="text-gray-400">Reason:</span> {r.reason}</div>}
         {order?.discountCodes?.length ? <div className="text-xs text-gray-400">Discount: <span className="font-medium text-gray-600">{order.discountCodes.join(', ')}</span></div> : null}
-        {daysToReturn !== null && <div className="text-xs text-gray-400">Returned {daysToReturn} day{daysToReturn !== 1 ? 's' : ''} after delivery {withinWindow !== null && <span className={withinWindow ? 'text-emerald-500' : 'text-red-500'}>({withinWindow ? `within ${returnWindowDays}d window` : 'expired'})</span>}</div>}
+        {daysToReturn !== null && daysToReturn >= 0 && <div className="text-xs text-gray-400">Returned {daysToReturn} day{daysToReturn !== 1 ? 's' : ''} after delivery {withinWindow !== null && daysInWindow !== null && daysInWindow >= 0 && <span className={withinWindow ? 'text-emerald-500' : 'text-red-500'}>({withinWindow ? `within ${returnWindowDays}d window` : `day ${daysInWindow} — expired`})</span>}</div>}
       </div>
 
       {/* ── Return Items ── */}
