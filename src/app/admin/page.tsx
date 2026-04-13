@@ -43,7 +43,7 @@ function fmt(d: string | null) {
 function fmtShort(d: string | null) {
   if (!d) return '—';
   const date = new Date(d);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function displayReason(r: Return): string {
@@ -612,16 +612,35 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       )}
 
-      {/* ── Timeline ── */}
+      {/* ── Full Lifecycle Timeline ── */}
       <div className="mb-4">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Timeline</div>
         <div className="space-y-0">
-          {r.return_requested && <TLRow date={r.return_requested} label="Return requested" color="bg-gray-300" />}
-          {ful?.deliveredAt && <TLRow date={ful.deliveredAt} label="Order delivered" color="bg-blue-300" />}
-          {r.label_sent && <TLRow date={r.label_sent} label="Return label sent" color="bg-blue-400" />}
-          {r.customer_shipped && <TLRow date={r.customer_shipped} label="Customer shipped" color="bg-blue-500" detail={r.tracking_number || undefined} />}
-          {r.delivered_to_us && <TLRow date={r.delivered_to_us} label="Return received" color="bg-emerald-400" />}
-          {r.processed_at && <TLRow date={r.processed_at} label={r.outcome === 'credit' ? 'Credit issued' : r.outcome === 'refund' ? 'Refund issued' : r.outcome === 'rejected' ? 'Rejected' : 'Processed'} color={r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600'} detail={r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : undefined} last={notes.length === 0} />}
+          {(() => {
+            const events: { date: string; label: string; color: string; detail?: string }[] = [];
+            // Order placed
+            if (order?.createdAt) events.push({ date: order.createdAt, label: 'Order placed', color: 'bg-gray-300', detail: `${order.channel || 'Online Store'} · $${parseFloat(order.total || '0').toFixed(2)}` });
+            // Order shipped
+            if (ful?.shippedAt) events.push({ date: ful.shippedAt, label: 'Order shipped', color: 'bg-blue-300', detail: ful.tracking ? `${ful.tracking.company} ${ful.tracking.number}` : undefined });
+            // Order delivered
+            if (ful?.deliveredAt) events.push({ date: ful.deliveredAt, label: 'Order delivered to customer', color: 'bg-blue-400' });
+            // Return requested
+            if (r.return_requested) events.push({ date: r.return_requested, label: 'Return requested', color: 'bg-amber-400', detail: r.reason || undefined });
+            // Label sent
+            if (r.label_sent) events.push({ date: r.label_sent, label: 'Return label sent to customer', color: 'bg-amber-300' });
+            // Customer shipped (label scanned)
+            if (r.customer_shipped) events.push({ date: r.customer_shipped, label: 'Customer shipped return', color: 'bg-sky-400', detail: r.tracking_number || undefined });
+            // Return delivered to us
+            if (r.delivered_to_us) events.push({ date: r.delivered_to_us, label: 'Return delivered to warehouse', color: 'bg-emerald-400' });
+            // Processed
+            if (r.processed_at) {
+              const pLabel = r.outcome === 'credit' ? 'Store credit issued' : r.outcome === 'refund' ? 'Refund issued' : r.outcome === 'rejected' ? 'Return rejected' : 'Processed';
+              events.push({ date: r.processed_at, label: pLabel, color: r.outcome === 'rejected' ? 'bg-red-400' : 'bg-emerald-600', detail: r.final_amount > 0 ? `$${r.final_amount.toFixed(2)}` : (r.reject_reason || undefined) });
+            }
+            // Sort chronologically
+            events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            return events.map((e, i) => <TLRow key={i} date={e.date} label={e.label} color={e.color} detail={e.detail} last={i === events.length - 1} />);
+          })()}
         </div>
       </div>
 
@@ -709,17 +728,17 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
 
 function TLRow({ date, label, color, detail, last }: { date: string; label: string; color: string; detail?: string; last?: boolean }) {
   return (
-    <div className="flex items-start gap-3 py-1.5">
-      <div className="flex flex-col items-center flex-shrink-0 pt-1">
+    <div className="flex items-start gap-3 py-1">
+      <div className="flex flex-col items-center flex-shrink-0 pt-1.5">
         <div className={`w-2 h-2 rounded-full ${color}`} />
-        {!last && <div className="w-px h-4 bg-gray-200 mt-0.5" />}
+        {!last && <div className="w-px h-5 bg-gray-200 mt-0.5" />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
           <span className="text-xs text-gray-700 font-medium">{label}</span>
-          <span className="text-[11px] text-gray-400">{fmt(date)}</span>
+          <span className="text-[10px] text-gray-400">{fmt(date)}</span>
         </div>
-        {detail && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{detail}</div>}
+        {detail && <div className="text-[10px] text-gray-400 mt-0.5 truncate">{detail}</div>}
       </div>
     </div>
   );
