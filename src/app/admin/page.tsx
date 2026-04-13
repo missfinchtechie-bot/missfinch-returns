@@ -416,6 +416,23 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
   const [newNote, setNewNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
+  // Editable fields
+  const [editingValue, setEditingValue] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const [editingReason, setEditingReason] = useState(false);
+  const [editReason, setEditReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [localSubtotal, setLocalSubtotal] = useState(r.subtotal);
+  const [localReason, setLocalReason] = useState(r.reason);
+
+  const saveField = async (fields: Record<string, unknown>) => {
+    setSaving(true);
+    await fetch('/api/returns/update', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: r.id, ...fields }) });
+    if (fields.subtotal !== undefined) { setLocalSubtotal(fields.subtotal as number); setEditingValue(false); }
+    if (fields.reason !== undefined) { setLocalReason(fields.reason as string); setEditingReason(false); }
+    setSaving(false);
+  };
+
   useEffect(() => {
     setLoadingOrder(true);
     if (r.order_number) {
@@ -448,21 +465,22 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
   const retailTotal = order?.lineItems?.reduce((s, i) => s + parseFloat(i.retailPrice || '0') * i.quantity, 0) || 0;
   const orderTotal = parseFloat(order?.total || '0');
   const discount = parseFloat(order?.totalDiscount || '0');
-  const restockFee = orderTotal > 0 && r.subtotal > 0 ? orderTotal - r.subtotal : 0;
+  const restockFee = orderTotal > 0 && localSubtotal > 0 ? orderTotal - localSubtotal : 0;
 
   // Intelligence calculations
   const now = new Date();
   const deliveredDate = ful?.deliveredAt ? new Date(ful.deliveredAt) : null;
   const requestedDate = r.return_requested ? new Date(r.return_requested) : null;
-  const daysInInbox = r.delivered_to_us ? Math.floor((now.getTime() - new Date(r.delivered_to_us).getTime()) / 86400000) : null;
-  const daysToReturn = deliveredDate && requestedDate ? Math.floor((requestedDate.getTime() - deliveredDate.getTime()) / 86400000) : null;
+  // Use Math.round instead of floor, and ensure we're comparing dates not datetimes for imported data
+  const daysInInbox = r.delivered_to_us ? Math.max(0, Math.round((now.getTime() - new Date(r.delivered_to_us).getTime()) / 86400000)) : null;
+  const daysToReturn = deliveredDate && requestedDate ? Math.round((requestedDate.getTime() - deliveredDate.getTime()) / 86400000) : null;
   const returnWindowDays = r.type === 'refund' ? 7 : 14;
-  const daysInWindow = deliveredDate && requestedDate ? Math.floor((requestedDate.getTime() - deliveredDate.getTime()) / 86400000) : null;
-  const withinWindow = daysInWindow !== null ? daysInWindow <= returnWindowDays : null;
+  const daysInWindow = daysToReturn;
+  const withinWindow = daysInWindow !== null && daysInWindow >= 0 ? daysInWindow <= returnWindowDays : null;
   const isNewCustomer = cust?.orderCount === '1';
   const hasDiscount = (order?.discountCodes?.length || 0) > 0;
   const customerSpent = cust ? parseFloat(cust.totalSpent || '0') : 0;
-  const returnPctOfLTV = customerSpent > 0 ? ((r.subtotal || 0) / customerSpent * 100) : null;
+  const returnPctOfLTV = customerSpent > 0 ? ((localSubtotal || 0) / customerSpent * 100) : null;
 
   // Risk signals
   const risks: { label: string; level: 'info' | 'warn' | 'danger' }[] = [];
@@ -529,7 +547,21 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
 
       {/* ── Reason + discount ── */}
       <div className="space-y-1 mb-4">
-        {r.reason && <div className="text-xs text-gray-500"><span className="text-gray-400">Reason:</span> {r.reason}</div>}
+        <div className="text-xs text-gray-500">
+          <span className="text-gray-400">Reason: </span>
+          {editingReason ? (
+            <span className="inline-flex items-center gap-1">
+              <input value={editReason} onChange={e => setEditReason(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveField({ reason: editReason }); if (e.key === 'Escape') setEditingReason(false); }}
+                className="text-xs border border-gray-300 rounded px-1.5 py-0.5 w-48 focus:outline-none focus:border-gray-900" autoFocus />
+              <button onClick={() => saveField({ reason: editReason })} disabled={saving} className="text-[10px] text-emerald-600">✓</button>
+              <button onClick={() => setEditingReason(false)} className="text-[10px] text-gray-400">✕</button>
+            </span>
+          ) : (
+            <button onClick={() => { setEditReason(localReason || ''); setEditingReason(true); }} className="hover:underline cursor-pointer">
+              {localReason || '—'} <span className="text-[10px] text-gray-300 ml-0.5">✎</span>
+            </button>
+          )}
+        </div>
         {order?.discountCodes?.length ? <div className="text-xs text-gray-400">Discount: <span className="font-medium text-gray-600">{order.discountCodes.join(', ')}</span></div> : null}
         {daysToReturn !== null && daysToReturn >= 0 && <div className="text-xs text-gray-400">Returned {daysToReturn} day{daysToReturn !== 1 ? 's' : ''} after delivery {withinWindow !== null && daysInWindow !== null && daysInWindow >= 0 && <span className={withinWindow ? 'text-emerald-500' : 'text-red-500'}>({withinWindow ? `within ${returnWindowDays}d window` : `day ${daysInWindow} — expired`})</span>}</div>}
       </div>
@@ -581,9 +613,19 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
             {discount > 0 && <div className="flex justify-between"><span className="text-gray-400">Discount</span><span className="text-red-500">-${discount.toFixed(2)}</span></div>}
             <div className="flex justify-between"><span className="text-gray-500 font-medium">Order total</span><span className="text-gray-900 font-medium">${orderTotal.toFixed(2)}</span></div>
             {restockFee > 0.01 && r.type === 'refund' && <div className="flex justify-between"><span className="text-gray-400">Restocking fee</span><span className="text-red-500">-${restockFee.toFixed(2)}</span></div>}
-            <div className="flex justify-between pt-1.5 border-t border-gray-200">
+            <div className="flex justify-between items-center pt-1.5 border-t border-gray-200">
               <span className="text-gray-900 font-semibold">Return value</span>
-              <span className="text-gray-900 font-bold">${(r.subtotal || 0).toFixed(2)}</span>
+              {editingValue ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-900 font-bold">$</span>
+                  <input value={editValue} onChange={e => setEditValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveField({ subtotal: parseFloat(editValue) || 0 }); if (e.key === 'Escape') setEditingValue(false); }}
+                    className="w-20 text-right text-sm font-bold text-gray-900 border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-gray-900" autoFocus />
+                  <button onClick={() => saveField({ subtotal: parseFloat(editValue) || 0 })} disabled={saving} className="text-[10px] text-emerald-600 font-medium">✓</button>
+                  <button onClick={() => setEditingValue(false)} className="text-[10px] text-gray-400">✕</button>
+                </div>
+              ) : (
+                <button onClick={() => { setEditValue((localSubtotal || 0).toFixed(2)); setEditingValue(true); }} className="text-gray-900 font-bold hover:underline cursor-pointer">${(localSubtotal || 0).toFixed(2)} <span className="text-[10px] text-gray-300 ml-0.5">✎</span></button>
+              )}
             </div>
           </div>
         </div>
@@ -617,7 +659,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
             if (order?.createdAt) events.push({ date: order.createdAt, label: 'Order placed', color: 'bg-gray-300', detail: `${order.channel || 'Online Store'} · $${parseFloat(order.total || '0').toFixed(2)}` });
             if (ful?.shippedAt) events.push({ date: ful.shippedAt, label: 'Order shipped', color: 'bg-blue-300', detail: ful.tracking ? `${ful.tracking.company} ${ful.tracking.number}` : undefined });
             if (ful?.deliveredAt) events.push({ date: ful.deliveredAt, label: 'Order delivered to customer', color: 'bg-blue-400' });
-            if (r.return_requested) events.push({ date: r.return_requested, label: 'Return requested', color: 'bg-amber-400', detail: r.reason || undefined });
+            if (r.return_requested) events.push({ date: r.return_requested, label: 'Return requested', color: 'bg-amber-400', detail: localReason || undefined });
             if (r.label_sent) events.push({ date: r.label_sent, label: 'Return label sent', color: 'bg-amber-300' });
             if (r.customer_shipped) events.push({ date: r.customer_shipped, label: 'Customer shipped return', color: 'bg-sky-400', detail: r.tracking_number || undefined });
             if (r.delivered_to_us) events.push({ date: r.delivered_to_us, label: 'Return received at warehouse', color: 'bg-emerald-400' });
@@ -673,14 +715,14 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       {(r.status === 'inbox' || r.status === 'old') && !showReject && (
         <div className="flex flex-col gap-2.5 mb-5">
           {r.type === 'credit' || r.type === 'exchange' ? (
-            <button onClick={() => doAction(r.id, 'credit', `Issue $${(r.subtotal || 0).toFixed(2)} store credit to ${r.customer_name}?`, r.subtotal, undefined, r.imported_from === 'redo')}
+            <button onClick={() => doAction(r.id, 'credit', `Issue $${(localSubtotal || 0).toFixed(2)} store credit to ${r.customer_name}?`, localSubtotal, undefined, r.imported_from === 'redo')}
               className="w-full py-4 bg-emerald-600 text-white rounded-xl text-base font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors">
-              Issue Credit{r.subtotal > 0 ? ` · $${r.subtotal.toFixed(2)}` : ''}
+              Issue Credit{localSubtotal > 0 ? ` · $${localSubtotal.toFixed(2)}` : ''}
             </button>
           ) : (
-            <button onClick={() => doAction(r.id, 'refund', `Refund $${(r.subtotal || 0).toFixed(2)} to ${r.customer_name}?`, r.subtotal, undefined, r.imported_from === 'redo')}
+            <button onClick={() => doAction(r.id, 'refund', `Refund $${(localSubtotal || 0).toFixed(2)} to ${r.customer_name}?`, localSubtotal, undefined, r.imported_from === 'redo')}
               className="w-full py-4 bg-gray-900 text-white rounded-xl text-base font-semibold hover:bg-gray-800 active:bg-gray-700 transition-colors">
-              Approve Refund{r.subtotal > 0 ? ` · $${r.subtotal.toFixed(2)}` : ''}
+              Approve Refund{localSubtotal > 0 ? ` · $${localSubtotal.toFixed(2)}` : ''}
             </button>
           )}
           <button onClick={() => setShowReject(true)} className="w-full py-3 bg-white text-red-500 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors">Reject</button>
