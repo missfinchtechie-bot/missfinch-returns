@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
                 createdAt
               }
               paymentGatewayNames
+              channelInformation { channelDefinition { handle channelName } }
+              sourceName
             }
           }
         }
@@ -75,6 +77,7 @@ export async function GET(req: NextRequest) {
       discountCodes: order.discountCodes || [],
       tags: order.tags || [],
       gateway: capture?.gateway || order.paymentGatewayNames?.[0] || null,
+      channel: order.channelInformation?.channelDefinition?.channelName || order.sourceName || null,
       customer: order.customer ? {
         id: order.customer.id,
         name: order.customer.displayName,

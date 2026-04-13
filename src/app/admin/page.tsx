@@ -389,7 +389,7 @@ export default function AdminDashboard() {
 type OrderData = {
   name: string; createdAt: string; total: string; subtotal: string; totalDiscount: string;
   shipping: string; currentTotal: string; refundable: boolean; discountCodes: string[];
-  gateway: string; tags: string[];
+  gateway: string; tags: string[]; channel: string | null;
   customer: { id: string; name: string; email: string; phone: string; orderCount: string; totalSpent: string } | null;
   shippingAddress: { name: string; address1: string; address2: string | null; city: string; provinceCode: string; zip: string; country: string; phone: string } | null;
   lineItems: { id: string; title: string; variant: string; sku: string; quantity: number; retailPrice: string; paidPrice: string; discount: string; image: string | null }[];
@@ -430,6 +430,10 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
           <div className="text-lg font-bold text-gray-900">{r.customer_name}</div>
           <div className="text-sm text-gray-400">{r.order_number} · Ordered {order ? fmtShort(order.createdAt) : '...'}</div>
           {r.return_requested && <div className="text-xs text-gray-400">Return created {fmtShort(r.return_requested)}</div>}
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            {order?.channel && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{order.channel}</span>}
+            <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded">via {r.imported_from === 'redo' ? 'Redo' : 'Portal'}</span>
+          </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${tb.bg}`}>{tb.label}</span>
@@ -445,9 +449,11 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       )}
 
-      {order?.discountCodes?.length ? (
-        <div className="text-xs text-gray-400 mb-4">Discount code: <span className="font-medium text-gray-600">{order.discountCodes.join(', ')}</span></div>
-      ) : null}
+      {/* Return reason + discount code */}
+      <div className="space-y-1.5 mb-4">
+        {r.reason && <div className="text-xs text-gray-500"><span className="text-gray-400">Reason:</span> {r.reason}</div>}
+        {order?.discountCodes?.length ? <div className="text-xs text-gray-400">Discount code: <span className="font-medium text-gray-600">{order.discountCodes.join(', ')}</span></div> : null}
+      </div>
 
       {/* Return Items */}
       <div className="mb-4">
@@ -600,7 +606,11 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         </div>
       )}
 
-      {order?.gateway && <div className="text-[11px] text-gray-300 text-center">Paid via {order.gateway.replace('_', ' ')}</div>}
+      {order?.gateway && (
+        <div className="text-[11px] text-gray-300 text-center">
+          {order.channel || 'Online Store'} · {order.gateway.replace('_', ' ')}
+        </div>
+      )}
     </div>
   );
 }
