@@ -70,23 +70,32 @@ export default function AdminDashboard() {
     if (res.ok) { setAuthed(true); setAuthError(''); } else { setAuthError('Wrong password'); }
   };
 
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const perPage = 50;
+
   const fetchReturns = useCallback(async () => {
     setLoading(true);
     const p = new URLSearchParams();
     if (search) p.set('search', search); else p.set('status', tab);
-    p.set('limit', '50');
+    p.set('limit', String(perPage));
+    p.set('page', String(page));
     const res = await fetch(`/api/returns?${p}`);
     const data = await res.json();
     setReturns(data.returns || []);
+    setTotal(data.total || 0);
     setLoading(false);
-  }, [tab, search]);
+  }, [tab, search, page]);
 
   const fetchStats = useCallback(async () => {
     const res = await fetch('/api/returns/stats');
     setStats(await res.json());
   }, []);
 
-  useEffect(() => { if (authed) { fetchReturns(); fetchStats(); } }, [authed, tab, search, fetchReturns, fetchStats]);
+  useEffect(() => { if (authed) { fetchReturns(); fetchStats(); } }, [authed, tab, search, page, fetchReturns, fetchStats]);
+
+  // Reset page when tab or search changes
+  useEffect(() => { setPage(1); }, [tab, search]);
 
   const requestProcess = (id: string, action: string, label: string, amount?: number, extra?: string) => {
     setConfirmAction({ id, action, extra, label, amount });
@@ -253,6 +262,47 @@ export default function AdminDashboard() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {!loading && total > 0 && (
+          <div className="flex items-center justify-between mt-4 mb-8 px-1">
+            <div className="text-sm text-gray-400">
+              Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of <span className="font-semibold text-gray-600">{total}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                className={`px-3 py-1.5 text-sm rounded-lg border ${page <= 1 ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-200 text-gray-600 hover:bg-gray-50 cursor-pointer'}`}>
+                ← Prev
+              </button>
+              {Array.from({ length: Math.min(5, Math.ceil(total / perPage)) }, (_, i) => {
+                const totalPages = Math.ceil(total / perPage);
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (page <= 3) {
+                  pageNum = i + 1;
+                } else if (page >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = page - 2 + i;
+                }
+                return (
+                  <button key={pageNum} onClick={() => setPage(pageNum)}
+                    className={`w-8 h-8 text-sm rounded-lg ${page === pageNum ? 'bg-gray-900 text-white font-semibold' : 'text-gray-500 hover:bg-gray-100'}`}>
+                    {pageNum}
+                  </button>
+                );
+              })}
+              {Math.ceil(total / perPage) > 5 && (
+                <span className="text-gray-300 text-sm">…{Math.ceil(total / perPage)}</span>
+              )}
+              <button onClick={() => setPage(p => Math.min(Math.ceil(total / perPage), p + 1))} disabled={page >= Math.ceil(total / perPage)}
+                className={`px-3 py-1.5 text-sm rounded-lg border ${page >= Math.ceil(total / perPage) ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-200 text-gray-600 hover:bg-gray-50 cursor-pointer'}`}>
+                Next →
+              </button>
+            </div>
           </div>
         )}
       </div>
