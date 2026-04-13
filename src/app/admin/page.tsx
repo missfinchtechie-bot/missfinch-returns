@@ -385,18 +385,44 @@ export default function AdminDashboard() {
 
 /* ─── Detail Panel Component ─── */
 type ReturnItem = { id: string; product_name: string; sku: string; size: string; price: number; image_url: string | null };
+type ShopifyOrder = {
+  customer: { name: string; email: string; phone: string; orderCount: string; totalSpent: string } | null;
+  shippingAddress: { name: string; address1: string; address2: string; city: string; province: string; zip: string } | null;
+  lineItems: { id: string; title: string; variant: string; sku: string; quantity: number; price: string; image: string | null }[];
+  total: string; refundable: boolean; gateways: string[];
+};
 
 function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, doAction, onClose }: {
   r: Return; showReject: boolean; setShowReject: (v: boolean) => void; rejectReason: string; setRejectReason: (v: string) => void;
   doAction: (id: string, action: string, label: string, amount?: number, extra?: string) => void; onClose: () => void;
 }) {
   const [items, setItems] = useState<ReturnItem[]>([]);
+  const [shopify, setShopify] = useState<ShopifyOrder | null>(null);
+
   useEffect(() => {
     fetch(`/api/returns/items?return_id=${r.id}`).then(res => res.json()).then(d => setItems(d.items || [])).catch(() => {});
-  }, [r.id]);
+    if (r.order_number) {
+      fetch(`/api/returns/order?order_number=${encodeURIComponent(r.order_number)}`).then(res => res.json()).then(d => {
+        if (!d.error) setShopify(d);
+      }).catch(() => {});
+    }
+  }, [r.id, r.order_number]);
 
   const tb = typeBadge(r.type);
   const si = statusInfo(r);
+
+  // Use Shopify data for customer info if available
+  const email = shopify?.customer?.email || r.customer_email;
+  const phone = shopify?.customer?.phone;
+  const addr = shopify?.shippingAddress;
+  const customerOrders = shopify?.customer?.orderCount;
+  const customerSpent = shopify?.customer?.totalSpent;
+  // Use Shopify line items if we don't have return_items
+  const displayItems = items.length > 0 ? items.map(i => ({
+    title: i.product_name, variant: i.size, sku: i.sku, price: i.price.toFixed(2), image: i.image_url,
+  })) : (shopify?.lineItems || []).map(i => ({
+    title: i.title, variant: i.variant, sku: i.sku, price: i.price, image: i.image,
+  }));
 
   const timelineItems: { date: string | null; label: string; color: string; detail?: string }[] = [];
   if (r.return_requested) timelineItems.push({ date: r.return_requested, label: 'Requested', color: 'bg-gray-300' });
@@ -442,23 +468,46 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       </div>
 
       {/* Order Items */}
-      {items.length > 0 && (
+      {displayItems.length > 0 && (
         <div className="mb-5">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2.5">Order Items</div>
           <div className="space-y-2">
-            {items.map(item => (
-              <div key={item.id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
+            {displayItems.map((item, i) => (
+              <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
+                {item.image && <img src={item.image} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />}
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 truncate">{item.product_name}</div>
+                  <div className="text-sm font-medium text-gray-900 truncate">{item.title}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    {item.size && <span>{item.size}</span>}
-                    {item.size && item.sku && <span> · </span>}
+                    {item.variant && <span>{item.variant}</span>}
+                    {item.variant && item.sku && <span> · </span>}
                     {item.sku && <span>{item.sku}</span>}
                   </div>
                 </div>
-                <div className="text-sm font-semibold text-gray-900 flex-shrink-0">${item.price.toFixed(2)}</div>
+                <div className="text-sm font-semibold text-gray-900 flex-shrink-0">${item.price}</div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Customer Info */}
+      {(email || phone || addr) && (
+        <div className="mb-5">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2.5">Customer</div>
+          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+            {email && <div className="text-gray-700">{email}</div>}
+            {phone && <div className="text-gray-500">{phone}</div>}
+            {addr && (
+              <div className="text-gray-500 text-xs mt-1">
+                {addr.address1}{addr.address2 ? `, ${addr.address2}` : ''}<br />
+                {addr.city}, {addr.province} {addr.zip}
+              </div>
+            )}
+            {customerOrders && customerSpent && (
+              <div className="text-xs text-gray-400 mt-1 pt-1.5 border-t border-gray-200">
+                {customerOrders} orders · ${parseFloat(customerSpent).toFixed(0)} lifetime
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -495,9 +544,6 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
           {r.tracking_number && <div className="text-xs text-sky-500 mt-0.5">{r.tracking_number}</div>}
         </div>
       )}
-
-      {/* Email */}
-      {r.customer_email && <div className="text-xs text-gray-400 mb-5">{r.customer_email}</div>}
 
       {/* ── Actions ── */}
       {(r.status === 'inbox' || r.status === 'old') && !showReject && (

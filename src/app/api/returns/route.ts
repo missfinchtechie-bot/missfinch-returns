@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
-import { issueStoreCredit, tagOrder, getOrder } from '@/lib/shopify';
+import { getOrder, issueStoreCredit, executeRefund, tagOrder } from '@/lib/shopify';
 
 // GET /api/returns?status=inbox&search=sarah&sort=return_requested&dir=desc
 export async function GET(req: NextRequest) {
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ returns: data, total: count, page, limit });
 }
 
-// PATCH /api/returns — process a return
+// PATCH /api/returns — process a return (EXECUTES REAL SHOPIFY ACTIONS)
 export async function PATCH(req: NextRequest) {
   const supabase = getServiceClient();
   const body = await req.json();
@@ -65,71 +65,122 @@ export async function PATCH(req: NextRequest) {
 
   const now = new Date().toISOString();
   const isImported = returnData.imported_from === 'redo';
+  const refundAmount = amount || returnData.subtotal || 0;
 
+  // ─── STORE CREDIT (gift card) ───
   if (action === 'credit') {
-    let shopifyError = null;
+    let shopifyResult: { giftCardId?: string; lastCharacters?: string; error?: string } = {};
 
     if (!isImported && returnData.order_number) {
       try {
         const order = await getOrder(returnData.order_number);
-        if (order?.customer?.id) {
-          await issueStoreCredit(order.customer.id, amount || returnData.subtotal || 0);
+        if (!order?.customer?.id) {
+          return NextResponse.json({ error: 'Customer not found on this order' }, { status: 400 });
         }
-        if (order?.id) {
-          await tagOrder(order.id, ['mf-return', 'credit-issued']);
+
+        // Issue gift card as store credit
+        const creditResult = await issueStoreCredit(
+          order.customer.id,
+          refundAmount,
+          `Store credit for return ${returnData.order_number} (${returnData.return_number})`
+        );
+
+        if (!creditResult.success) {
+          return NextResponse.json({ error: `Shopify error: ${creditResult.error}` }, { status: 500 });
         }
+
+        shopifyResult = creditResult;
+
+        // Tag the order
+        await tagOrder(order.id, ['mf-return', 'credit-issued']).catch(() => {});
       } catch (err) {
-        shopifyError = err instanceof Error ? err.message : 'Shopify API error';
-        console.error('Shopify credit error:', err);
+        const msg = err instanceof Error ? err.message : 'Shopify API error';
+        console.error('Credit error:', err);
+        return NextResponse.json({ error: msg }, { status: 500 });
       }
     }
 
+    // Update return record
     const { error } = await supabase
       .from('returns')
-      .update({ status: 'done', outcome: 'credit', final_amount: amount || returnData.subtotal || 0, processed_at: now, updated_at: now })
+      .update({
+        status: 'done', outcome: 'credit',
+        final_amount: refundAmount, processed_at: now, updated_at: now,
+      })
       .eq('id', id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     await supabase.from('timeline_events').insert({
-      return_id: id, event: 'Store credit issued',
-      detail: `$${(amount || returnData.subtotal || 0).toFixed(2)} credit${isImported ? ' (imported — Shopify not called)' : ''}${shopifyError ? ' — Error: ' + shopifyError : ''}`,
+      return_id: id,
+      event: 'Store credit issued',
+      detail: isImported
+        ? `$${refundAmount.toFixed(2)} credit (Redo import — Shopify not called)`
+        : `$${refundAmount.toFixed(2)} gift card issued (ending ${shopifyResult.lastCharacters || '?'})`,
       event_date: now,
     });
 
-    return NextResponse.json({ success: true, action: 'credit', shopify_called: !isImported, shopify_error: shopifyError });
+    return NextResponse.json({ success: true, action: 'credit', shopify_called: !isImported, ...shopifyResult });
   }
 
+  // ─── REFUND (to original payment method) ───
   if (action === 'refund') {
-    let shopifyError = null;
+    let refundResult: { refundId?: string; amountRefunded?: number; error?: string } = {};
 
     if (!isImported && returnData.order_number) {
       try {
         const order = await getOrder(returnData.order_number);
-        if (order?.id) {
-          await tagOrder(order.id, ['mf-return', 'refund-approved']);
+        if (!order?.id) {
+          return NextResponse.json({ error: 'Order not found in Shopify' }, { status: 400 });
         }
+
+        // Execute real refund — executeRefund caps at maximum_refundable automatically
+        const result = await executeRefund(
+          order.id,
+          refundAmount,
+          `Refund for return ${returnData.order_number} (${returnData.return_number})`
+        );
+
+        if (!result.success) {
+          return NextResponse.json({ error: `Shopify refund failed: ${result.error}` }, { status: 500 });
+        }
+
+        refundResult = result;
+
+        // Tag the order
+        await tagOrder(order.id, ['mf-return', 'refunded']).catch(() => {});
       } catch (err) {
-        shopifyError = err instanceof Error ? err.message : 'Shopify API error';
+        const msg = err instanceof Error ? err.message : 'Shopify API error';
+        console.error('Refund error:', err);
+        return NextResponse.json({ error: msg }, { status: 500 });
       }
     }
 
+    const actualAmount = refundResult.amountRefunded || refundAmount;
+
     const { error } = await supabase
       .from('returns')
-      .update({ status: 'done', outcome: 'refund', final_amount: amount || returnData.subtotal || 0, processed_at: now, updated_at: now })
+      .update({
+        status: 'done', outcome: 'refund',
+        final_amount: actualAmount, processed_at: now, updated_at: now,
+      })
       .eq('id', id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     await supabase.from('timeline_events').insert({
-      return_id: id, event: 'Refund approved',
-      detail: `$${(amount || returnData.subtotal || 0).toFixed(2)} refund${isImported ? ' (imported)' : ''}${shopifyError ? ' — Error: ' + shopifyError : ''}`,
+      return_id: id,
+      event: 'Refund issued',
+      detail: isImported
+        ? `$${refundAmount.toFixed(2)} refund (Redo import — Shopify not called)`
+        : `$${actualAmount.toFixed(2)} refunded to original payment method`,
       event_date: now,
     });
 
-    return NextResponse.json({ success: true, action: 'refund', shopify_called: !isImported, shopify_error: shopifyError });
+    return NextResponse.json({ success: true, action: 'refund', shopify_called: !isImported, ...refundResult });
   }
 
+  // ─── REJECT ───
   if (action === 'reject') {
     const { error } = await supabase
       .from('returns')
@@ -145,6 +196,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true, action: 'reject' });
   }
 
+  // ─── MARK RECEIVED ───
   if (action === 'received') {
     const { error } = await supabase
       .from('returns')

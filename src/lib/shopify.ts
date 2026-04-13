@@ -4,173 +4,215 @@ const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || 'missfinchnyc.myshopi
 const API_VERSION = '2026-04';
 
 async function getAccessToken(): Promise<string> {
-  // First check env var (for local dev)
-  if (process.env.SHOPIFY_ACCESS_TOKEN) {
-    return process.env.SHOPIFY_ACCESS_TOKEN;
-  }
-
-  // Then check Supabase (where OAuth stores it)
+  if (process.env.SHOPIFY_ACCESS_TOKEN) return process.env.SHOPIFY_ACCESS_TOKEN;
   const supabase = getServiceClient();
-  const { data } = await supabase
-    .from('settings')
-    .select('value')
-    .eq('key', 'shopify_access_token')
-    .single();
-
-  if (data?.value) {
-    return JSON.parse(data.value);
-  }
-
-  throw new Error('No Shopify access token. Visit /api/auth/shopify to connect.');
+  const { data } = await supabase.from('settings').select('value').eq('key', 'shopify_access_token').single();
+  if (data?.value) return JSON.parse(data.value);
+  throw new Error('No Shopify access token.');
 }
+
+// ─── GraphQL ───
 
 export async function shopifyGraphQL(query: string, variables?: Record<string, unknown>) {
   const token = await getAccessToken();
-  const res = await fetch(
-    `https://${SHOPIFY_DOMAIN}/admin/api/${API_VERSION}/graphql.json`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': token,
-      },
-      body: JSON.stringify({ query, variables }),
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Shopify API error ${res.status}: ${text}`);
-  }
-
+  const res = await fetch(`https://${SHOPIFY_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) throw new Error(`Shopify ${res.status}: ${await res.text()}`);
   const json = await res.json();
-  if (json.errors) {
-    throw new Error(`Shopify GraphQL errors: ${JSON.stringify(json.errors)}`);
-  }
-
+  if (json.errors) throw new Error(`Shopify GQL: ${JSON.stringify(json.errors)}`);
   return json.data;
 }
 
-// Fetch an order by order number
+// ─── REST ───
+
+async function shopifyREST(endpoint: string, method = 'GET', body?: unknown) {
+  const token = await getAccessToken();
+  const res = await fetch(`https://${SHOPIFY_DOMAIN}/admin/api/${API_VERSION}/${endpoint}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`Shopify REST ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// ─── Get Order (rich data for detail panel) ───
+
 export async function getOrder(orderNumber: string) {
   const query = `
-    query GetOrder($query: String!) {
-      orders(first: 1, query: $query) {
+    query GetOrder($q: String!) {
+      orders(first: 1, query: $q) {
         edges {
           node {
-            id
-            name
-            createdAt
-            totalPriceSet { shopMoney { amount currencyCode } }
+            id name createdAt
+            totalPriceSet { shopMoney { amount } }
+            subtotalPriceSet { shopMoney { amount } }
+            currentTotalPriceSet { shopMoney { amount } }
+            refundable
             customer {
-              id
-              displayName
-              email
-              numberOfOrders
-              amountSpent { amount currencyCode }
+              id displayName email phone numberOfOrders
+              amountSpent { amount }
+            }
+            shippingAddress {
+              name address1 address2 city provinceCode zip country phone
             }
             lineItems(first: 50) {
               edges {
                 node {
-                  id
-                  title
-                  variantTitle
-                  sku
-                  quantity
+                  id title variantTitle sku quantity
                   originalUnitPriceSet { shopMoney { amount } }
-                  image { url }
+                  discountedUnitPriceSet { shopMoney { amount } }
+                  image { url(transform: {maxWidth: 120}) }
                 }
               }
             }
             fulfillments(first: 10) {
               trackingInfo { number url company }
-              deliveredAt
-              createdAt
+              deliveredAt createdAt
+            }
+            transactions(first: 10) {
+              id kind status gateway
+              amountSet { shopMoney { amount } }
+              parentTransaction { id }
             }
             paymentGatewayNames
-            transactions(first: 5) {
-              gateway
-              amountSet { shopMoney { amount } }
-            }
-            shippingAddress {
-              address1
-              address2
-              city
-              province
-              zip
-              country
-            }
+            note
+            tags
           }
         }
       }
     }
   `;
-
-  const data = await shopifyGraphQL(query, { query: `name:${orderNumber}` });
+  const data = await shopifyGraphQL(query, { q: `name:${orderNumber}` });
   return data.orders.edges[0]?.node || null;
 }
 
-// Issue store credit to a customer
-export async function issueStoreCredit(customerId: string, amount: number) {
-  const query = `
-    mutation IssueCredit($id: ID!, $creditInput: StoreCreditAccountCreditInput!) {
-      storeCreditAccountCredit(id: $id, creditInput: $creditInput) {
-        storeCreditAccountTransaction {
-          amount { amount currencyCode }
-          account { id balance { amount currencyCode } }
-        }
-        userErrors { message field }
-      }
-    }
-  `;
+// ─── Get REST order ID from GraphQL GID ───
 
-  return shopifyGraphQL(query, {
-    id: customerId,
-    creditInput: {
-      creditAmount: { amount: amount.toFixed(2), currencyCode: 'USD' },
-    },
-  });
+function gidToId(gid: string): string {
+  return gid.split('/').pop() || '';
 }
 
-// Create a refund
-export async function createRefund(orderId: string, lineItems: { lineItemId: string; quantity: number }[], amount: number) {
+// ─── Calculate refund (safe — tells us exactly what Shopify will refund) ───
+
+export async function calculateRefund(orderGid: string) {
+  const orderId = gidToId(orderGid);
+  const result = await shopifyREST(`orders/${orderId}/refunds/calculate.json`, 'POST', {
+    refund: {
+      currency: 'USD',
+      shipping: { full_refund: false },
+    },
+  });
+
+  const refund = result.refund;
+  const tx = refund.transactions?.[0];
+
+  return {
+    maxRefundable: parseFloat(tx?.maximum_refundable || '0'),
+    parentTransactionId: tx?.parent_id ? String(tx.parent_id) : null,
+    gateway: tx?.gateway || null,
+    suggestedAmount: parseFloat(tx?.amount || '0'),
+  };
+}
+
+// ─── Execute refund to original payment method ───
+// SAFETY: uses calculateRefund first to ensure we never refund more than allowed
+
+export async function executeRefund(orderGid: string, amount: number, note?: string): Promise<{
+  success: boolean;
+  refundId?: string;
+  amountRefunded?: number;
+  error?: string;
+}> {
+  const orderId = gidToId(orderGid);
+
+  // Step 1: Calculate to get parent transaction + max refundable
+  const calc = await calculateRefund(orderGid);
+
+  if (!calc.parentTransactionId) {
+    return { success: false, error: 'No refundable transaction found on this order' };
+  }
+
+  // Step 2: Cap amount at maximum refundable — NEVER exceed
+  const safeAmount = Math.min(amount, calc.maxRefundable);
+
+  if (safeAmount <= 0) {
+    return { success: false, error: `Nothing to refund. Max refundable: $${calc.maxRefundable.toFixed(2)}` };
+  }
+
+  // Step 3: Execute the refund
+  const result = await shopifyREST(`orders/${orderId}/refunds.json`, 'POST', {
+    refund: {
+      currency: 'USD',
+      notify: false, // We handle notifications via Klaviyo
+      note: note || 'Processed via Miss Finch Returns Dashboard',
+      transactions: [{
+        parent_id: calc.parentTransactionId,
+        amount: safeAmount.toFixed(2),
+        kind: 'refund',
+        gateway: calc.gateway || 'shopify_payments',
+      }],
+    },
+  });
+
+  const refund = result.refund;
+  return {
+    success: true,
+    refundId: String(refund.id),
+    amountRefunded: safeAmount,
+  };
+}
+
+// ─── Issue store credit as gift card ───
+// Not Shopify Plus, so we use gift cards (customer can use at checkout)
+
+export async function issueStoreCredit(customerId: string, amount: number, note?: string): Promise<{
+  success: boolean;
+  giftCardId?: string;
+  lastCharacters?: string;
+  error?: string;
+}> {
+  if (amount <= 0) {
+    return { success: false, error: 'Amount must be greater than 0' };
+  }
+
   const query = `
-    mutation RefundCreate($input: RefundInput!) {
-      refundCreate(input: $input) {
-        refund {
-          id
-          totalRefundedSet { shopMoney { amount } }
+    mutation CreateGiftCard($input: GiftCardCreateInput!) {
+      giftCardCreate(input: $input) {
+        giftCard {
+          id lastCharacters
+          balance { amount }
         }
         userErrors { message field }
       }
     }
   `;
 
-  return shopifyGraphQL(query, {
+  const data = await shopifyGraphQL(query, {
     input: {
-      orderId,
-      refundLineItems: lineItems,
-      transactions: [],
-      note: 'Processed via Miss Finch Returns Dashboard',
+      initialValue: amount.toFixed(2),
+      note: note || 'Store credit via Miss Finch Returns',
+      customerId,
     },
   });
+
+  const result = data.giftCardCreate;
+  if (result.userErrors?.length > 0) {
+    return { success: false, error: result.userErrors.map((e: { message: string }) => e.message).join(', ') };
+  }
+
+  return {
+    success: true,
+    giftCardId: result.giftCard.id,
+    lastCharacters: result.giftCard.lastCharacters,
+  };
 }
 
-// Approve a return request
-export async function approveReturn(returnId: string) {
-  const query = `
-    mutation ApproveReturn($id: ID!) {
-      returnApproveRequest(input: { id: $id }) {
-        return { id status }
-        userErrors { message field }
-      }
-    }
-  `;
+// ─── Tag an order ───
 
-  return shopifyGraphQL(query, { id: returnId });
-}
-
-// Tag an order
 export async function tagOrder(orderId: string, tags: string[]) {
   const query = `
     mutation TagOrder($id: ID!, $tags: [String!]!) {
@@ -179,6 +221,5 @@ export async function tagOrder(orderId: string, tags: string[]) {
       }
     }
   `;
-
   return shopifyGraphQL(query, { id: orderId, tags });
 }
