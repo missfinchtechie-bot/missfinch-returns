@@ -170,7 +170,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7] w-full max-w-5xl mx-auto relative px-4 md:px-8" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="min-h-screen bg-[#FAF9F7] w-full relative" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-7 py-3 rounded-full text-base font-medium z-50 shadow-xl animate-fade-in">
@@ -186,7 +186,7 @@ export default function AdminDashboard() {
             <span className="text-gray-500 text-xs ml-2.5">Returns Dashboard</span>
           </div>
         </div>
-        <div className="relative max-w-xl">
+        <div className="relative">
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}

@@ -2,7 +2,7 @@
 
 export default function ReturnsPage() {
   // This URL will be your Shopify customer accounts URL
-  const shopifyAccountUrl = 'https://shopify.com/68195295393/account';
+  const shopifyAccountUrl = 'https://account.missfinchnyc.com';
 
   return (
     <div className="min-h-screen bg-[#FAF9F7]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
