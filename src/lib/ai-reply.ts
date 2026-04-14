@@ -1,7 +1,7 @@
-// AI message classifier and reply drafter using Gemini API
-// Uses Gemini 2.5 Flash — free tier, fast, handles classification + drafting well
+// AI message classifier and reply drafter using Anthropic Claude API
+// Uses Claude Haiku 4.5 — fast, cheap, great for classification + short drafts
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
 const SYSTEM_PROMPT = `You are the customer service assistant for Miss Finch NYC, a modest fashion brand based in New York.
 You respond to customer emails on behalf of the brand.
@@ -13,7 +13,7 @@ KEY POLICIES:
 - Returns: Processed through the return portal at missfinchnyc.com/apps/redo/returns-portal/login
 - Return window: 7 days for refunds, 14 days for exchanges/store credit (from delivery date)
 - Exchanges: Free, no restocking fee. One exchange per order.
-- Store credit: Free, no fees. 5% bonus on card-paid orders.
+- Store credit: Free, no fees.
 - Refunds: 5% restocking fee deducted from refund amount.
 - Shipping: Free ground shipping on US orders over $99. Ships from NYC within 1-2 business days.
 - No physical store. Online only.
@@ -29,6 +29,12 @@ SIZING: If a customer asks about sizing, recommend they check the size guide on 
 
 WHEN ASKED ABOUT REJECTED RETURNS: Be empathetic. Common rejection reasons include tags removed, signs of wear, stains, or outside return window. Offer to have someone review the case. Never be defensive.
 
+ESCALATION SCENARIOS:
+- Customer exchanged an item but wants to return the exchange: This is tricky — Redo may block it. Acknowledge the frustration, say you'll look into it personally, and flag for manual review.
+- Customer says colors don't match photos: Apologize sincerely, offer to help with a return or exchange.
+- Order cancellation within a few hours: Say you'll try to catch it before it ships, but can't guarantee.
+- Return delivered but never refunded: Apologize for the delay, say you're looking into it right away.
+
 IMPORTANT: Keep replies concise (3-5 sentences max). Customers don't want essays. Answer the question directly, provide the relevant link or info, done.`;
 
 export type MessageCategory = 
@@ -40,6 +46,8 @@ export type MessageCategory =
   | 'return_rejected'
   | 'exchange_question'
   | 'complaint'
+  | 'cancellation'
+  | 'missing_refund'
   | 'other';
 
 export type AutoSendCategory = 'return_instructions' | 'sizing' | 'order_status' | 'shipping' | 'store_visit';
@@ -60,8 +68,8 @@ export async function classifyAndDraft(
   body: string,
   orderContext?: string,
 ): Promise<ClassifiedMessage> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
   const userMessage = `Classify this customer email and draft a reply.
 
@@ -74,30 +82,32 @@ ${orderContext ? `ORDER CONTEXT:\n${orderContext}\n` : ''}
 
 Respond in this exact JSON format (no markdown, no backticks, just raw JSON):
 {
-  "category": "return_instructions|sizing|order_status|shipping|store_visit|return_rejected|exchange_question|complaint|other",
+  "category": "return_instructions|sizing|order_status|shipping|store_visit|return_rejected|exchange_question|complaint|cancellation|missing_refund|other",
   "confidence": 0.0-1.0,
   "reasoning": "Brief explanation of why you classified it this way",
   "draftReply": "The actual reply to send to the customer"
 }`;
 
-  const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+  const res = await fetch(ANTHROPIC_API_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ parts: [{ text: userMessage }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 1000,
-        responseMimeType: 'application/json',
-      },
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+      temperature: 0.3,
     }),
   });
 
-  if (!res.ok) throw new Error(`Gemini API ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
 
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const text = data.content?.[0]?.text || '';
 
   try {
     const parsed = JSON.parse(text.replace(/```json\n?|```/g, '').trim());
@@ -123,5 +133,3 @@ Respond in this exact JSON format (no markdown, no backticks, just raw JSON):
     };
   }
 }
-// deployed 20260414021752
-// reconnect deploy 1776134071
