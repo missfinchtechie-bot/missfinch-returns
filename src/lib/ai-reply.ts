@@ -1,6 +1,7 @@
-// AI message classifier and reply drafter using Claude API
+// AI message classifier and reply drafter using Gemini API
+// Uses Gemini 2.0 Flash — free tier handles ~1500 requests/day
 
-const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 const SYSTEM_PROMPT = `You are the customer service assistant for Miss Finch NYC, a modest fashion brand based in New York.
 You respond to customer emails on behalf of the brand.
@@ -59,8 +60,8 @@ export async function classifyAndDraft(
   body: string,
   orderContext?: string,
 ): Promise<ClassifiedMessage> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
   const userMessage = `Classify this customer email and draft a reply.
 
@@ -71,7 +72,7 @@ ${body.slice(0, 2000)}
 
 ${orderContext ? `ORDER CONTEXT:\n${orderContext}\n` : ''}
 
-Respond in this exact JSON format (no markdown, no backticks):
+Respond in this exact JSON format (no markdown, no backticks, just raw JSON):
 {
   "category": "return_instructions|sizing|order_status|shipping|store_visit|return_rejected|exchange_question|complaint|other",
   "confidence": 0.0-1.0,
@@ -79,31 +80,30 @@ Respond in this exact JSON format (no markdown, no backticks):
   "draftReply": "The actual reply to send to the customer"
 }`;
 
-  const res = await fetch(CLAUDE_API_URL, {
+  const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ parts: [{ text: userMessage }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 1000,
+        responseMimeType: 'application/json',
+      },
     }),
   });
 
-  if (!res.ok) throw new Error(`Claude API ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Gemini API ${res.status}: ${await res.text()}`);
 
   const data = await res.json();
-  const text = data.content?.[0]?.text || '';
-  
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
   try {
     const parsed = JSON.parse(text.replace(/```json\n?|```/g, '').trim());
     const category = parsed.category as MessageCategory;
     const autoSend = AUTO_SEND_CATEGORIES.includes(category as AutoSendCategory) && parsed.confidence >= 0.85;
-    
+
     return {
       category,
       autoSend,
