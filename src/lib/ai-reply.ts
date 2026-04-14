@@ -1,7 +1,7 @@
 // AI message classifier and reply drafter using Gemini API
-// Uses Gemini 2.0 Flash — free tier handles ~1500 requests/day
+// Uses Gemini 2.5 Pro for higher quality classifications and drafts
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent';
 
 const SYSTEM_PROMPT = `You are the customer service assistant for Miss Finch NYC, a modest fashion brand based in New York.
 You respond to customer emails on behalf of the brand.
@@ -102,7 +102,9 @@ Respond in this exact JSON format (no markdown, no backticks, just raw JSON):
   try {
     const parsed = JSON.parse(text.replace(/```json\n?|```/g, '').trim());
     const category = parsed.category as MessageCategory;
-    const autoSend = AUTO_SEND_CATEGORIES.includes(category as AutoSendCategory) && parsed.confidence >= 0.85;
+    // Auto-send disabled — all messages go to pending_review for manual approval
+    // To re-enable: const autoSend = AUTO_SEND_CATEGORIES.includes(category as AutoSendCategory) && parsed.confidence >= 0.85;
+    const autoSend = false;
 
     return {
       category,
