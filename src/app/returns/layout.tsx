@@ -1,4 +1,17 @@
 import type { Metadata } from 'next';
+import { DM_Sans, Cormorant_Garamond } from 'next/font/google';
+
+const dmSans = DM_Sans({ 
+  subsets: ['latin'], 
+  weight: ['300', '400', '500', '600', '700'],
+  variable: '--font-dm-sans',
+});
+
+const cormorant = Cormorant_Garamond({ 
+  subsets: ['latin'], 
+  weight: ['300', '400', '500', '600'],
+  variable: '--font-cormorant',
+});
 
 export const metadata: Metadata = {
   title: 'Returns & Exchanges — Miss Finch NYC',
@@ -7,8 +20,8 @@ export const metadata: Metadata = {
 
 export default function ReturnsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen" style={{ background: '#F5F3EE', fontFamily: "'DM Sans', -apple-system, sans-serif" }}>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+    <div className={`min-h-screen ${dmSans.variable} ${cormorant.variable}`}
+      style={{ background: '#F5F3EE', fontFamily: 'var(--font-dm-sans), -apple-system, sans-serif' }}>
       {children}
     </div>
   );
