@@ -189,13 +189,13 @@ export default function AdminDashboard() {
       {/* ─── Header ─── */}
       <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 sm:px-6 py-3.5 shadow-sm">
         <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <h1 className="font-heading text-xl font-semibold italic text-[var(--foreground)]">Miss Finch</h1>
-            <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--muted-foreground)]">NYC</span>
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <h1 className="font-heading text-lg sm:text-xl font-semibold italic text-[var(--foreground)]">Miss Finch</h1>
+            <span className="hidden sm:inline text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--muted-foreground)]">NYC</span>
             <span className="mx-1 h-5 w-px bg-[var(--border)]" />
-            <div className="hidden sm:flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
-              <span className="text-xs tracking-wider uppercase font-semibold px-3 py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md">Returns</span>
-              <a href="/admin/messages" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xs tracking-wider uppercase px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Messages</a>
+            <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
+              <span className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-2 sm:px-3 py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md">Returns</span>
+              <a href="/admin/messages" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Messages</a>
             </div>
           </div>
           <div className="relative flex-1 max-w-xs sm:max-w-sm">
