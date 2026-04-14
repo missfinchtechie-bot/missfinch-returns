@@ -190,7 +190,8 @@ export default function AdminDashboard() {
       <div className="bg-[#1a1a1a] px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 flex-shrink-0">
           <img src="/logo-white.png" alt="Miss Finch NYC" className="h-8 sm:h-9" style={{ filter: 'brightness(1)' }} />
-          <span className="text-gray-600 text-xs tracking-wider uppercase hidden sm:inline">Returns</span>
+          <span className="text-white text-xs tracking-wider uppercase font-medium hidden sm:inline">Returns</span>
+          <a href="/admin/messages" className="text-[#666] hover:text-white text-xs tracking-wider uppercase transition-colors hidden sm:inline">Messages</a>
         </div>
         <div className="relative flex-1 max-w-xs sm:max-w-sm">
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order # or name..."

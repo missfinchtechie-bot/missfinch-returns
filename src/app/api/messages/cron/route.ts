@@ -4,7 +4,11 @@ import { classifyAndDraft } from '@/lib/ai-reply';
 import { getServiceClient } from '@/lib/supabase';
 
 function verifyCron(req: Request): boolean {
-  return req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
+  // Accept cron secret header OR admin auth cookie
+  if (req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`) return true;
+  const cookie = req.headers.get('cookie') || '';
+  if (cookie.includes('mf_auth=authenticated')) return true;
+  return false;
 }
 
 export async function GET(req: Request) {
