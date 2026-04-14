@@ -188,10 +188,12 @@ export default function AdminDashboard() {
 
       {/* ─── Header ─── */}
       <div className="bg-[#1a1a1a] px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <img src="/logo-white.png" alt="Miss Finch NYC" className="h-8 sm:h-9" style={{ filter: 'brightness(1)' }} />
-          <span className="text-white text-xs tracking-wider uppercase font-medium hidden sm:inline">Returns</span>
-          <a href="/admin/messages" className="text-[#666] hover:text-white text-xs tracking-wider uppercase transition-colors hidden sm:inline">Messages</a>
+          <div className="hidden sm:flex items-center gap-1 ml-2 bg-[#2a2a2a] rounded-lg p-0.5">
+            <span className="text-white text-xs tracking-wider uppercase font-medium px-3 py-1.5 bg-[#444] rounded-md">Returns</span>
+            <a href="/admin/messages" className="text-[#aaa] hover:text-white text-xs tracking-wider uppercase px-3 py-1.5 rounded-md hover:bg-[#333] transition-colors">Messages</a>
+          </div>
         </div>
         <div className="relative flex-1 max-w-xs sm:max-w-sm">
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order # or name..."
@@ -208,22 +210,22 @@ export default function AdminDashboard() {
             <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
               <div className="text-[10px] text-amber-600 uppercase tracking-wider font-medium">Pending Refunds</div>
               <div className="text-lg font-bold text-amber-800">${stats.pendingRefund.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
-              <div className="text-[10px] text-amber-500">{stats.inbox} return{stats.inbox !== 1 ? 's' : ''} waiting</div>
+              <div className="text-[11px] text-amber-600">{stats.inbox} return{stats.inbox !== 1 ? 's' : ''} waiting</div>
             </div>
             <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2.5">
               <div className="text-[10px] text-emerald-600 uppercase tracking-wider font-medium">Pending Credits</div>
               <div className="text-lg font-bold text-emerald-800">${stats.pendingCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
-              <div className="text-[10px] text-emerald-500">store credit / exchange</div>
+              <div className="text-[11px] text-emerald-600">store credit / exchange</div>
             </div>
             <div className="bg-sky-50 border border-sky-100 rounded-lg px-3 py-2.5">
               <div className="text-[10px] text-sky-600 uppercase tracking-wider font-medium">In Transit</div>
               <div className="text-lg font-bold text-sky-800">${stats.inTransitValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
-              <div className="text-[10px] text-sky-500">{stats.shipping} return{stats.shipping !== 1 ? 's' : ''} shipping</div>
+              <div className="text-[11px] text-sky-600">{stats.shipping} return{stats.shipping !== 1 ? 's' : ''} shipping</div>
             </div>
             <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
               <div className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">This Week</div>
               <div className="text-lg font-bold text-gray-800">{stats.processedThisWeek}</div>
-              <div className="text-[10px] text-gray-400">processed in 7 days</div>
+              <div className="text-[11px] text-gray-500">processed in 7 days</div>
             </div>
           </div>
         </div>
@@ -239,7 +241,7 @@ export default function AdminDashboard() {
               return (
                 <button key={t.key} onClick={() => { setTab(t.key); setSearch(''); setTypeFilter('all'); }}
                   className={`px-3 sm:px-4 py-3 text-sm whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
-                    active ? 'border-[#1a1a1a] text-[#1a1a1a] font-semibold' : 'border-transparent text-gray-400 hover:text-gray-600'
+                    active ? 'border-[#1a1a1a] text-[#1a1a1a] font-semibold' : 'border-transparent text-gray-500 hover:text-gray-800'
                   }`}>
                   {t.label}
                   {typeof count === 'number' && count > 0 && (
@@ -255,7 +257,7 @@ export default function AdminDashboard() {
           <div className="hidden md:flex items-center gap-2 flex-shrink-0 pl-4">
             {['all', 'refund', 'credit', 'exchange'].map(t => (
               <button key={t} onClick={() => setTypeFilter(t)}
-                className={`text-[11px] px-2 py-1 rounded-md transition-colors ${typeFilter === t ? 'bg-gray-900 text-white font-semibold' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}>
+                className={`text-[11px] px-2 py-1 rounded-md transition-colors ${typeFilter === t ? 'bg-gray-900 text-white font-semibold' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'}`}>
                 {t === 'all' ? 'All types' : t.charAt(0).toUpperCase() + t.slice(1)}
               </button>
             ))}
@@ -266,14 +268,14 @@ export default function AdminDashboard() {
       {/* ─── Content ─── */}
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-400">{search ? `Search: "${search}"` : TAB_DESC[tab]}</p>
-          <span className="text-xs text-gray-400">{total} result{total !== 1 ? 's' : ''}</span>
+          <p className="text-sm text-gray-600 font-medium">{search ? `Search: "${search}"` : TAB_DESC[tab]}</p>
+          <span className="text-sm text-gray-600">{total} result{total !== 1 ? 's' : ''}</span>
         </div>
 
-        {loading && <div className="text-center py-20 text-gray-300 text-sm">Loading...</div>}
+        {loading && <div className="text-center py-20 text-gray-400 text-sm">Loading...</div>}
 
         {!loading && filteredReturns.length === 0 && (
-          <div className="text-center py-20 text-gray-300">
+          <div className="text-center py-20 text-gray-400">
             <div className="text-3xl mb-2">{search ? '🔍' : '✓'}</div>
             <div className="text-sm">{search ? 'No results' : tab === 'inbox' ? 'No returns need action right now' : 'Nothing here'}</div>
           </div>
@@ -285,14 +287,14 @@ export default function AdminDashboard() {
             <table className="w-full">
               <thead>
                 <tr className="bg-[#FAFAF8] border-b border-gray-200">
-                  <th onClick={() => toggleSort('order_number')} className="pl-4 pr-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left w-[90px]">Order{sort.key === 'order_number' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('customer_name')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Customer{sort.key === 'customer_name' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('item_count')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[50px]">Qty{sort.key === 'item_count' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('subtotal')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-right w-[100px]">Return ${sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('type')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[80px]">Type{sort.key === 'type' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('status')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[100px]">Status{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('return_requested')} className="px-2 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left w-[110px]">Requested{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th className="px-2 pr-4 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-left">Reason</th>
+                  <th onClick={() => toggleSort('order_number')} className="pl-4 pr-2 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left w-[90px]">Order{sort.key === 'order_number' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('customer_name')} className="px-2 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left">Customer{sort.key === 'customer_name' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('item_count')} className="px-2 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[50px]">Qty{sort.key === 'item_count' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('subtotal')} className="px-2 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-right w-[100px]">Return ${sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('type')} className="px-2 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[80px]">Type{sort.key === 'type' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('status')} className="px-2 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-center w-[100px]">Status{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('return_requested')} className="px-2 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none text-left w-[110px]">Requested{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th className="px-2 pr-4 py-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider text-left">Reason</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -309,10 +311,10 @@ export default function AdminDashboard() {
                       <td className="px-2 py-2.5">
                         <div className="text-sm text-gray-900 font-medium">{r.customer_name}</div>
                         {r.is_flagged && <div className="text-[10px] text-red-500 font-semibold">⚠ {r.flag_reason || 'Flagged'}</div>}
-                        {r.imported_from === 'redo' && <div className="text-[10px] text-gray-300">via Redo</div>}
+                        {r.imported_from === 'redo' && <div className="text-[10px] text-gray-500 italic">via Redo</div>}
                       </td>
                       <td className="px-2 py-2.5 text-center">
-                        <span className={`text-sm ${r.item_count >= 3 ? 'font-semibold text-amber-700' : 'text-gray-500'}`}>{r.item_count}</span>
+                        <span className={`text-sm ${r.item_count >= 3 ? 'font-semibold text-amber-700' : 'text-gray-700'}`}>{r.item_count}</span>
                       </td>
                       <td className="px-2 py-2.5 text-right">
                         <div className={`text-sm font-semibold ${r.subtotal >= 300 ? 'text-amber-700' : 'text-gray-900'}`}>
@@ -322,10 +324,10 @@ export default function AdminDashboard() {
                       <td className="px-2 py-2.5 text-center"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${tb.bg}`}>{tb.label}</span></td>
                       <td className="px-2 py-2.5 text-center"><span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${si.cls}`}>{si.text}</span></td>
                       <td className="px-2 py-2.5">
-                        <div className="text-sm text-gray-500">{fmtShort(r.return_requested)}</div>
-                        {daysAgo !== null && daysAgo > 0 && <div className={`text-[10px] ${daysAgo > 14 ? 'text-red-400' : daysAgo > 7 ? 'text-amber-400' : 'text-gray-300'}`}>{daysAgo}d ago</div>}
+                        <div className="text-sm text-gray-700">{fmtShort(r.return_requested)}</div>
+                        {daysAgo !== null && daysAgo > 0 && <div className={`text-[10px] ${daysAgo > 14 ? 'text-red-500' : daysAgo > 7 ? 'text-amber-500' : 'text-gray-500'}`}>{daysAgo}d ago</div>}
                       </td>
-                      <td className="px-2 pr-4 py-2.5 text-xs text-gray-400 max-w-[160px] truncate">{displayReason(r)}</td>
+                      <td className="px-2 pr-4 py-2.5 text-xs text-gray-700 max-w-[160px] truncate">{displayReason(r)}</td>
                     </tr>
                   );
                 })}
@@ -347,7 +349,7 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-start mb-1.5">
                     <div className="min-w-0 flex-1 mr-3">
                       <div className="font-semibold text-gray-900">{r.customer_name}</div>
-                      <div className="text-sm text-gray-400">{r.order_number} · {r.item_count} item{r.item_count > 1 ? 's' : ''}</div>
+                      <div className="text-sm text-gray-500">{r.order_number} · {r.item_count} item{r.item_count > 1 ? 's' : ''}</div>
                     </div>
                     <div className={`text-base font-bold ${r.subtotal >= 300 ? 'text-amber-700' : 'text-gray-900'}`}>
                       {r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}
@@ -625,8 +627,8 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
 
       {/* ── Return Items ── */}
       <div className="mb-4">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Items</div>
-        {loadingOrder ? <div className="text-xs text-gray-300 py-4 text-center">Loading...</div> : (
+        <div className="text-[11px] text-gray-600 uppercase tracking-wider mb-2 font-medium">Return Items</div>
+        {loadingOrder ? <div className="text-xs text-gray-400 py-4 text-center">Loading...</div> : (
           <div className="space-y-2">
             {(order?.lineItems || []).map((item, i) => (
               <div key={i} className="bg-white border border-gray-200 rounded-lg p-3">
@@ -650,7 +652,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       {/* ── Return Shipping (TOP — actionable info) ── */}
       {(r.tracking_number || r.tracking_status || r.delivered_to_us) && (
         <div className="mb-4">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Return Shipping</div>
+          <div className="text-[11px] text-gray-600 uppercase tracking-wider mb-2 font-medium">Return Shipping</div>
           <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
             <div className="flex justify-between"><span className="text-gray-400">Status</span><span className={`font-medium ${r.tracking_status === 'Delivered' ? 'text-emerald-600' : 'text-blue-600'}`}>{r.tracking_status || 'Unknown'}</span></div>
             {r.delivered_to_us && <div className="flex justify-between"><span className="text-gray-400">Received</span><span className="text-gray-700">{fmtShort(r.delivered_to_us)}</span></div>}
@@ -662,7 +664,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       {/* ── Summary ── */}
       {order && (
         <div className="mb-4 bg-gray-50 rounded-lg p-3">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Summary</div>
+          <div className="text-[11px] text-gray-600 uppercase tracking-wider mb-2 font-medium">Summary</div>
           <div className="space-y-1.5 text-sm">
             {retailTotal > 0 && Math.abs(retailTotal - orderTotal) > 0.01 && (
               <div className="flex justify-between"><span className="text-gray-400">Retail</span><span className="text-gray-600">${retailTotal.toFixed(2)}</span></div>
@@ -691,7 +693,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       {/* ── Customer ── */}
       {cust && (
         <div className="mb-4">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Customer</div>
+          <div className="text-[11px] text-gray-600 uppercase tracking-wider mb-2 font-medium">Customer</div>
           <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
             <div className="font-medium text-gray-900">{cust.name}</div>
             <div className="text-gray-600">{cust.email}</div>
@@ -709,7 +711,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
 
       {/* ── Full Lifecycle Timeline ── */}
       <div className="mb-4">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Timeline</div>
+        <div className="text-[11px] text-gray-600 uppercase tracking-wider mb-2 font-medium">Timeline</div>
         <div className="space-y-0">
           {(() => {
             const events: { date: string; label: string; color: string; detail?: string }[] = [];
@@ -733,7 +735,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       {/* ── Outbound Shipping + Carrier Scans ── */}
       {ful && (
         <div className="mb-4">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Outbound Shipping</div>
+          <div className="text-[11px] text-gray-600 uppercase tracking-wider mb-2 font-medium">Outbound Shipping</div>
           <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
             <div className="flex justify-between"><span className="text-gray-400">Status</span><span className={`font-medium ${ful.deliveredAt ? 'text-emerald-600' : 'text-blue-600'}`}>{ful.deliveredAt ? 'Delivered' : ful.status}</span></div>
             {ful.deliveredAt && <div className="flex justify-between"><span className="text-gray-400">Delivered</span><span className="text-gray-700">{fmtShort(ful.deliveredAt)}</span></div>}
@@ -747,7 +749,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
 
       {/* ── Notes ── */}
       <div className="mb-5">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Notes</div>
+        <div className="text-[11px] text-gray-600 uppercase tracking-wider mb-2 font-medium">Notes</div>
         {notes.length > 0 && (
           <div className="space-y-2 mb-3">
             {notes.map(n => (
@@ -819,7 +821,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       )}
 
       {order?.gateway && (
-        <div className="text-[11px] text-gray-300 text-center">
+        <div className="text-[11px] text-gray-400 text-center">
           {order.channel || 'Online Store'} · {order.gateway.replace('_', ' ')}
         </div>
       )}

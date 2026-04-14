@@ -138,12 +138,14 @@ export default function MessagesPage() {
 
       {/* Header */}
       <div className="bg-[#1a1a1a] px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <img src="/logo-white.png" alt="Miss Finch NYC" className="h-8 sm:h-9" />
-          <span className="text-gray-600 text-xs tracking-wider uppercase hidden sm:inline">Messages</span>
+          <div className="hidden sm:flex items-center gap-1 ml-2 bg-[#2a2a2a] rounded-lg p-0.5">
+            <a href="/admin" className="text-[#aaa] hover:text-white text-xs tracking-wider uppercase px-3 py-1.5 rounded-md hover:bg-[#333] transition-colors">Returns</a>
+            <span className="text-white text-xs tracking-wider uppercase font-medium px-3 py-1.5 bg-[#444] rounded-md">Messages</span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          <a href="/admin" className="text-[#666] hover:text-white text-sm transition-colors">← Returns</a>
           <button onClick={runCron} disabled={refreshing}
             className="bg-[#2a2a2a] border border-[#333] text-white text-sm px-4 py-2 rounded-lg hover:bg-[#333] disabled:opacity-50 transition-colors">
             {refreshing ? 'Checking...' : '↻ Check Inbox'}
@@ -182,9 +184,9 @@ export default function MessagesPage() {
           {/* Message list */}
           <div className="w-full sm:w-[380px] flex-shrink-0 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
             {loading ? (
-              <div className="text-center py-12 text-gray-400">Loading...</div>
+              <div className="text-center py-12 text-gray-500">Loading...</div>
             ) : messages.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">No messages</div>
+              <div className="text-center py-12 text-gray-500">No messages</div>
             ) : messages.map(m => {
               const cat = CATEGORY_COLORS[m.category] || CATEGORY_COLORS.other;
               const isSelected = selected?.id === m.id;
@@ -193,14 +195,14 @@ export default function MessagesPage() {
                   className={`w-full text-left p-3.5 rounded-xl border transition-all ${isSelected ? 'bg-white border-gray-300 shadow-md ring-1 ring-gray-200' : 'bg-white border-gray-100 hover:border-gray-200 hover:shadow-sm'}`}>
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <span className="font-medium text-sm text-gray-900 truncate">{m.from_name || m.from_email}</span>
-                    <span className="text-[10px] text-gray-400 flex-shrink-0">{timeAgo(m.created_at)}</span>
+                    <span className="text-[10px] text-gray-500 flex-shrink-0">{timeAgo(m.created_at)}</span>
                   </div>
                   <div className="text-xs text-gray-600 truncate mb-2">{m.subject}</div>
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${cat.bg} ${cat.text}`}>
                       {CATEGORY_LABELS[m.category] || m.category}
                     </span>
-                    <span className="text-[10px] text-gray-400">{Math.round(m.confidence * 100)}%</span>
+                    <span className="text-[10px] text-gray-500">{Math.round(m.confidence * 100)}%</span>
                     {m.status === 'sent' && <span className="text-[10px] text-emerald-500 font-medium ml-auto">✓ Sent</span>}
                     {m.status === 'pending_review' && <span className="text-[10px] text-amber-500 font-medium ml-auto">⏳ Pending</span>}
                   </div>
@@ -212,7 +214,7 @@ export default function MessagesPage() {
           {/* Detail panel */}
           <div className="hidden sm:block flex-1 min-w-0">
             {!selected ? (
-              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+              <div className="flex items-center justify-center h-full text-gray-500 text-sm">
                 Select a message to review
               </div>
             ) : (
@@ -222,7 +224,7 @@ export default function MessagesPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <div className="font-medium text-gray-900">{selected.from_name || selected.from_email}</div>
-                      <div className="text-xs text-gray-400">{selected.from_email} · {fmtTime(selected.created_at)}</div>
+                      <div className="text-xs text-gray-500">{selected.from_email} · {fmtTime(selected.created_at)}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       {(() => { const cat = CATEGORY_COLORS[selected.category] || CATEGORY_COLORS.other; return (
@@ -230,7 +232,7 @@ export default function MessagesPage() {
                           {CATEGORY_LABELS[selected.category] || selected.category}
                         </span>
                       ); })()}
-                      <span className="text-xs text-gray-400">{Math.round(selected.confidence * 100)}% confidence</span>
+                      <span className="text-xs text-gray-500">{Math.round(selected.confidence * 100)}% confidence</span>
                     </div>
                   </div>
                   <div className="text-sm font-medium text-gray-800 mb-2">{selected.subject}</div>
@@ -241,7 +243,7 @@ export default function MessagesPage() {
 
                 {/* AI reasoning */}
                 <div className="px-5 py-3 bg-[#FAFAF8] border-b border-gray-100">
-                  <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-1">AI Reasoning</div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider font-medium mb-1">AI Reasoning</div>
                   <div className="text-xs text-gray-500">{selected.reasoning}</div>
                 </div>
 
