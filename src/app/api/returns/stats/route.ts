@@ -4,13 +4,14 @@ import { getServiceClient } from '@/lib/supabase';
 export async function GET() {
   const supabase = getServiceClient();
 
-  const [inbox, shipping, old, done, flagged, all] = await Promise.all([
+  const [inbox, shipping, old, done, flagged, all, lost] = await Promise.all([
     supabase.from('returns').select('*', { count: 'exact', head: true }).eq('status', 'inbox'),
     supabase.from('returns').select('*', { count: 'exact', head: true }).eq('status', 'shipping'),
     supabase.from('returns').select('*', { count: 'exact', head: true }).eq('status', 'old'),
     supabase.from('returns').select('*', { count: 'exact', head: true }).eq('status', 'done'),
     supabase.from('returns').select('*', { count: 'exact', head: true }).eq('is_flagged', true).neq('status', 'done'),
     supabase.from('returns').select('*', { count: 'exact', head: true }),
+    supabase.from('returns').select('*', { count: 'exact', head: true }).eq('status', 'done').eq('outcome', 'lost'),
   ]);
 
   // Get pending value (inbox returns total)
@@ -38,6 +39,7 @@ export async function GET() {
     done: done.count || 0,
     flagged: flagged.count || 0,
     all: all.count || 0,
+    lost: lost.count || 0,
     pendingRefund,
     pendingCredit,
     inTransitValue,

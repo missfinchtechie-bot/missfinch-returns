@@ -12,13 +12,13 @@ type Return = {
   label_url: string | null; customer_shipped: string | null; label_sent: string | null;
 };
 
-type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; pendingRefund: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number };
+type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; lost: number; pendingRefund: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number };
 
 const TABS = [
   { key: 'all', label: 'All', icon: '☰' },
   { key: 'inbox', label: 'Action Needed', icon: '⚡' },
   { key: 'shipping', label: 'In Transit', icon: '🚚' },
-  { key: 'old', label: 'Unprocessed', icon: '📦' },
+  { key: 'old', label: 'Backlog', icon: '📦' },
   { key: 'done', label: 'Completed', icon: '✓' },
 ];
 
@@ -26,8 +26,8 @@ const TAB_DESC: Record<string, string> = {
   all: 'All returns — sorted by most recent',
   inbox: 'Delivered to you — ready to process',
   shipping: 'Customer shipped — on the way to you',
-  old: 'Delivered but never processed',
-  done: 'Credited, refunded, or rejected',
+  old: 'Delivered 30+ days ago — no action taken',
+  done: 'Credited, refunded, rejected, or lost',
 };
 
 const REJECT_REASONS = ['Tags removed', 'Signs of wear', 'Item damaged', 'Stains or odor', 'Not in original packaging', 'Wrong item returned', 'Other'];
@@ -72,9 +72,10 @@ function statusInfo(r: Return) {
   if (r.status === 'done' && r.outcome === 'credit') return { text: 'Credited', cls: 'bg-emerald-50 text-emerald-600 border border-emerald-200/80' };
   if (r.status === 'done' && r.outcome === 'refund') return { text: 'Refunded', cls: 'bg-emerald-50 text-emerald-600 border border-emerald-200/80' };
   if (r.status === 'done' && r.outcome === 'rejected') return { text: 'Rejected', cls: 'bg-red-50 text-red-500 border border-red-200/80' };
+  if (r.status === 'done' && r.outcome === 'lost') return { text: 'Lost', cls: 'bg-purple-50 text-purple-600 border border-purple-200/80' };
   if (r.status === 'inbox') return { text: 'Ready', cls: 'bg-amber-50 text-amber-700 border border-amber-200/80 font-semibold' };
   if (r.status === 'shipping') return { text: r.tracking_status || 'In transit', cls: 'bg-sky-50 text-sky-600 border border-sky-200/80' };
-  if (r.status === 'old') return { text: 'Unprocessed', cls: 'bg-orange-50 text-orange-600 border border-orange-200/80' };
+  if (r.status === 'old') return { text: 'Backlog', cls: 'bg-orange-50 text-orange-600 border border-orange-200/80' };
   return { text: r.status, cls: 'bg-stone-100 text-stone-500 border border-stone-200/80' };
 }
 
@@ -84,7 +85,7 @@ export default function AdminDashboard() {
   const [pwErr, setPwErr] = useState('');
   const [tab, setTab] = useState('inbox');
   const [returns, setReturns] = useState<Return[]>([]);
-  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0, pendingRefund: 0, pendingCredit: 0, inTransitValue: 0, processedThisWeek: 0 });
+  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0, lost: 0, pendingRefund: 0, pendingCredit: 0, inTransitValue: 0, processedThisWeek: 0 });
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Return | null>(null);
   const [loading, setLoading] = useState(true);
@@ -130,6 +131,22 @@ export default function AdminDashboard() {
 
   useEffect(() => { if (authed) { fetchReturns(); fetchStats(); } }, [authed, tab, search, page, sort, fetchReturns, fetchStats]);
   useEffect(() => { setPage(1); }, [tab, search, sort]);
+
+  // Run maintenance on first load (moves stale inbox→backlog, stale shipping→lost)
+  useEffect(() => {
+    if (authed) {
+      fetch('/api/returns/maintenance', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          if ((d.movedToBacklog || 0) > 0 || (d.markedLost || 0) > 0) {
+            fetchReturns();
+            fetchStats();
+          }
+        })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
 
   const doAction = (id: string, action: string, label: string, amount?: number, extra?: string, imported?: boolean) => {
     setForceShopify(false);
@@ -296,9 +313,9 @@ export default function AdminDashboard() {
                   <th onClick={() => toggleSort('item_count')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-center w-[50px]">Qty{sort.key === 'item_count' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th onClick={() => toggleSort('subtotal')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-right w-[100px]">Return ${sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th onClick={() => toggleSort('type')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-center w-[80px]">Type{sort.key === 'type' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('status')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-center w-[100px]">Status{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('return_requested')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-left w-[110px]">Requested{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th className="px-2 pr-4 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Reason</th>
+                  <th onClick={() => toggleSort('status')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-center w-[100px]">{tab === 'shipping' ? 'Last Scan' : 'Status'}{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('return_requested')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-left w-[110px]">{tab === 'shipping' ? 'Shipped' : 'Requested'}{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th className="px-2 pr-4 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">{tab === 'shipping' ? 'In Transit' : 'Reason'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
@@ -306,6 +323,8 @@ export default function AdminDashboard() {
                   const tb = typeBadge(r.type);
                   const si = statusInfo(r);
                   const daysAgo = r.return_requested ? Math.round((new Date().getTime() - new Date(r.return_requested).getTime()) / 86400000) : null;
+                  const shippedDate = r.customer_shipped || r.return_requested;
+                  const daysInTransit = shippedDate ? Math.round((new Date().getTime() - new Date(shippedDate).getTime()) / 86400000) : null;
                   return (
                     <tr key={r.id} onClick={() => { setSelected(r); setShowReject(false); setRejectReason(''); }}
                       className={`cursor-pointer transition-colors hover:bg-[var(--accent)]/40 ${r.is_flagged ? 'bg-red-50/40' : r.subtotal >= 300 ? 'bg-amber-50/20' : ''}`}>
@@ -328,10 +347,26 @@ export default function AdminDashboard() {
                       <td className="px-2 py-3 text-center"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg ${tb.bg}`}>{tb.label}</span></td>
                       <td className="px-2 py-3 text-center"><span className={`text-[10px] font-medium px-2 py-0.5 rounded-lg ${si.cls}`}>{si.text}</span></td>
                       <td className="px-2 py-3">
-                        <div className="text-sm text-[var(--foreground)]">{fmtShort(r.return_requested)}</div>
-                        {daysAgo !== null && daysAgo > 0 && <div className={`text-[10px] ${daysAgo > 14 ? 'text-red-500' : daysAgo > 7 ? 'text-amber-500' : 'text-[var(--muted-foreground)]'}`}>{daysAgo}d ago</div>}
+                        {tab === 'shipping' ? (
+                          <>
+                            <div className="text-sm text-[var(--foreground)]">{fmtShort(r.customer_shipped || r.return_requested)}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-sm text-[var(--foreground)]">{fmtShort(r.return_requested)}</div>
+                            {daysAgo !== null && daysAgo > 0 && <div className={`text-[10px] ${daysAgo > 14 ? 'text-red-500' : daysAgo > 7 ? 'text-amber-500' : 'text-[var(--muted-foreground)]'}`}>{daysAgo}d ago</div>}
+                          </>
+                        )}
                       </td>
-                      <td className="px-2 pr-4 py-3 text-xs text-[var(--muted-foreground)] max-w-[160px] truncate">{displayReason(r)}</td>
+                      <td className="px-2 pr-4 py-3 text-xs max-w-[160px]">
+                        {tab === 'shipping' ? (
+                          <span className={`font-medium ${daysInTransit !== null && daysInTransit > 14 ? 'text-red-500' : daysInTransit !== null && daysInTransit > 7 ? 'text-amber-600' : 'text-[var(--muted-foreground)]'}`}>
+                            {daysInTransit !== null ? `${daysInTransit}d` : '—'}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--muted-foreground)] truncate">{displayReason(r)}</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -347,6 +382,8 @@ export default function AdminDashboard() {
               const tb = typeBadge(r.type);
               const si = statusInfo(r);
               const daysAgo = r.return_requested ? Math.round((new Date().getTime() - new Date(r.return_requested).getTime()) / 86400000) : null;
+              const shippedDate = r.customer_shipped || r.return_requested;
+              const daysInTransit = shippedDate ? Math.round((new Date().getTime() - new Date(shippedDate).getTime()) / 86400000) : null;
               return (
                 <div key={r.id} onClick={() => { setSelected(r); setShowReject(false); setRejectReason(''); }}
                   className={`p-4 bg-[var(--card)] rounded-xl active:bg-[var(--accent)] shadow-sm ${r.is_flagged ? 'border-2 border-red-200' : 'border border-[var(--border)]'}`}>
@@ -362,8 +399,14 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg ${tb.bg}`}>{tb.label}</span>
                     <span className={`text-[10px] font-medium px-2 py-0.5 rounded-lg ${si.cls}`}>{si.text}</span>
-                    <span className="text-[10px] text-[var(--muted-foreground)]">{fmtShort(r.return_requested)}</span>
-                    {daysAgo !== null && daysAgo > 7 && <span className={`text-[10px] ${daysAgo > 14 ? 'text-red-400' : 'text-amber-400'}`}>{daysAgo}d ago</span>}
+                    {tab === 'shipping' && daysInTransit !== null ? (
+                      <span className={`text-[10px] font-medium ${daysInTransit > 14 ? 'text-red-500' : daysInTransit > 7 ? 'text-amber-500' : 'text-[var(--muted-foreground)]'}`}>{daysInTransit}d in transit</span>
+                    ) : (
+                      <>
+                        <span className="text-[10px] text-[var(--muted-foreground)]">{fmtShort(r.return_requested)}</span>
+                        {daysAgo !== null && daysAgo > 7 && <span className={`text-[10px] ${daysAgo > 14 ? 'text-red-400' : 'text-amber-400'}`}>{daysAgo}d ago</span>}
+                      </>
+                    )}
                   </div>
                   {r.reason && <div className="text-xs text-[var(--muted-foreground)] mt-1.5 truncate">{r.reason}</div>}
                   {r.is_flagged && <div className="text-[10px] text-red-500 font-semibold mt-1">⚠ {r.flag_reason || 'Flagged'}</div>}
@@ -800,11 +843,12 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       )}
 
       {r.status === 'done' && (
-        <div className={`rounded-xl p-4 text-center mb-5 border ${r.outcome === 'rejected' ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
-          <div className={`text-sm font-semibold ${r.outcome === 'rejected' ? 'text-red-600' : 'text-emerald-600'}`}>
+        <div className={`rounded-xl p-4 text-center mb-5 border ${r.outcome === 'rejected' ? 'bg-red-50 border-red-100' : r.outcome === 'lost' ? 'bg-purple-50 border-purple-100' : 'bg-emerald-50 border-emerald-100'}`}>
+          <div className={`text-sm font-semibold ${r.outcome === 'rejected' ? 'text-red-600' : r.outcome === 'lost' ? 'text-purple-600' : 'text-emerald-600'}`}>
             {r.outcome === 'credit' && `Credit Issued${r.final_amount > 0 ? ` · $${r.final_amount.toFixed(2)}` : ''}`}
             {r.outcome === 'refund' && `Refunded${r.final_amount > 0 ? ` · $${r.final_amount.toFixed(2)}` : ''}`}
             {r.outcome === 'rejected' && `Rejected${r.reject_reason ? ` — ${r.reject_reason}` : ''}`}
+            {r.outcome === 'lost' && 'Lost in Transit — 45+ days with no delivery'}
           </div>
           {r.processed_at && <div className="text-xs text-[var(--muted-foreground)] mt-1">{fmt(r.processed_at)}</div>}
         </div>
