@@ -189,7 +189,7 @@ export default function AdminDashboard() {
       {/* ─── Header ─── */}
       <div className="bg-[#1a1a1a] px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 flex-shrink-0">
-          <h1 className="font-serif text-white text-lg font-medium tracking-wider">MISS FINCH</h1>
+          <img src="/logo-white.png" alt="Miss Finch NYC" className="h-8 sm:h-9" style={{ filter: 'brightness(1)' }} />
           <span className="text-gray-600 text-xs tracking-wider uppercase hidden sm:inline">Returns</span>
         </div>
         <div className="relative flex-1 max-w-xs sm:max-w-sm">
