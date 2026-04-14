@@ -1,107 +1,89 @@
-// Fee tiers
-// Store Credit: 1-2 items = free, 3-5 = $2.95/item, 6+ = $4.95/item
-// Refund: 1-2 items = $4.95/item, 3-5 = $6.95/item, 6+ = $9.95/item
+// Miss Finch NYC — Return Fee & Bonus Engine
 
-export function getFeePerItem(type: 'credit' | 'refund', itemCount: number): number {
-  if (type === 'credit') {
-    if (itemCount <= 2) return 0;
-    if (itemCount <= 5) return 2.95;
-    return 4.95;
-  }
-  // refund
-  if (itemCount <= 2) return 4.95;
-  if (itemCount <= 5) return 6.95;
-  return 9.95;
+// Current: 5% restocking on refunds, free for credit/exchange
+// Future tiers defined but not active
+
+export function getCurrentFee(type: 'credit' | 'refund' | 'exchange', subtotal: number): number {
+  if (type === 'refund') return Math.round(subtotal * 0.05 * 100) / 100;
+  return 0;
+}
+
+// Store Credit Bonus Config
+export const BONUS_CONFIG = {
+  percent: 5,
+  maxBonusDollars: 25,
+  frequencyCapCount: 2,       // max bonuses per customer per window
+  frequencyCapDays: 90,
+  eligiblePayments: ['card'] as string[],
+  excludeExchangeOrders: true,
+  excludeImportedReturns: true,
+};
+
+export function calculateBonus(params: {
+  subtotal: number;
+  paidWith: 'card' | 'store_credit' | 'gift_card' | 'mixed';
+  isExchangeOrder: boolean;
+  isImported: boolean;
+  bonusesIn90Days: number;
+}): { eligible: boolean; amount: number; reason: string } {
+  const { subtotal, paidWith, isExchangeOrder, isImported, bonusesIn90Days } = params;
+
+  if (!BONUS_CONFIG.eligiblePayments.includes(paidWith))
+    return { eligible: false, amount: 0, reason: 'Bonus only on card-paid orders' };
+  if (BONUS_CONFIG.excludeExchangeOrders && isExchangeOrder)
+    return { eligible: false, amount: 0, reason: 'No bonus on exchange orders' };
+  if (BONUS_CONFIG.excludeImportedReturns && isImported)
+    return { eligible: false, amount: 0, reason: 'Bonus only for portal returns' };
+  if (bonusesIn90Days >= BONUS_CONFIG.frequencyCapCount)
+    return { eligible: false, amount: 0, reason: `Limit reached (${BONUS_CONFIG.frequencyCapCount} in ${BONUS_CONFIG.frequencyCapDays}d)` };
+
+  let bonus = Math.round(subtotal * (BONUS_CONFIG.percent / 100) * 100) / 100;
+  if (bonus > BONUS_CONFIG.maxBonusDollars) bonus = BONUS_CONFIG.maxBonusDollars;
+
+  return { eligible: true, amount: bonus, reason: `${BONUS_CONFIG.percent}% store credit bonus` };
 }
 
 export function calculateReturn(params: {
-  type: 'credit' | 'refund';
-  items: { price: number }[];
-  paidWith: 'card' | 'store_credit' | 'mixed';
-  bonusPercent?: number;
+  type: 'credit' | 'refund' | 'exchange';
+  subtotal: number;
+  itemCount: number;
+  paidWith: 'card' | 'store_credit' | 'gift_card' | 'mixed';
+  isExchangeOrder?: boolean;
+  isImported?: boolean;
+  bonusesIn90Days?: number;
 }) {
-  const { type, items, paidWith, bonusPercent = 5 } = params;
-  const itemCount = items.length;
-  const subtotal = items.reduce((sum, i) => sum + i.price, 0);
-  const feePerItem = getFeePerItem(type, itemCount);
-  const totalFees = feePerItem * itemCount;
+  const { type, subtotal, itemCount, paidWith, isExchangeOrder = false, isImported = false, bonusesIn90Days = 0 } = params;
+  const fee = getCurrentFee(type, subtotal);
 
-  // Bonus only on store credit, only on card-paid portion
-  let bonus = 0;
-  if (type === 'credit' && paidWith === 'card') {
-    bonus = Math.round((subtotal - totalFees) * (bonusPercent / 100) * 100) / 100;
+  let bonus = { eligible: false, amount: 0, reason: '' };
+  if (type === 'credit') {
+    bonus = calculateBonus({ subtotal: subtotal - fee, paidWith, isExchangeOrder, isImported, bonusesIn90Days });
   }
-  // Mixed payment: bonus only on card portion (would need card amount passed in)
-  // For now, no bonus on mixed or store_credit payments
-
-  const finalAmount = Math.round((subtotal - totalFees + bonus) * 100) / 100;
 
   return {
-    subtotal,
-    itemCount,
-    feePerItem,
-    totalFees,
-    bonus,
-    finalAmount,
-    type,
-    paidWith,
+    subtotal, itemCount, fee,
+    bonusAmount: bonus.amount, bonusEligible: bonus.eligible, bonusReason: bonus.reason,
+    finalAmount: Math.round((subtotal - fee + bonus.amount) * 100) / 100,
+    type, paidWith,
   };
 }
 
-// Check if customer should be flagged
-export function shouldFlag(returnsIn90Days: number): {
-  flagged: boolean;
-  reason: string | null;
-} {
-  if (returnsIn90Days >= 3) {
-    return {
-      flagged: true,
-      reason: `${returnsIn90Days} returns in 90 days`,
-    };
-  }
+export function shouldFlag(returnsIn90Days: number) {
+  if (returnsIn90Days >= 3) return { flagged: true, reason: `${returnsIn90Days} returns in 90 days` };
   return { flagged: false, reason: null };
 }
 
-// Determine auto-approve eligibility
-export function canAutoApprove(params: {
-  type: 'credit' | 'refund';
-  itemCount: number;
-  returnsIn90Days: number;
-  withinWindow: boolean;
-}): { approved: boolean; reason: string } {
+export function canAutoApprove(params: { type: string; itemCount: number; returnsIn90Days: number; withinWindow: boolean }) {
   const { type, itemCount, returnsIn90Days, withinWindow } = params;
-
-  if (!withinWindow) {
-    return { approved: false, reason: 'Outside return window' };
-  }
-
-  // Refunds ALWAYS require manual approval
-  if (type === 'refund') {
-    return { approved: false, reason: 'Refunds require manual approval' };
-  }
-
-  // Flagged customers need review
-  if (returnsIn90Days >= 3) {
-    return { approved: false, reason: `${returnsIn90Days} returns in 90 days — review required` };
-  }
-
-  // Large returns need review
-  if (itemCount > 2) {
-    return { approved: false, reason: `${itemCount} items — review required` };
-  }
-
-  // Store credit, 1-2 items, clean history = auto-approve
-  return { approved: true, reason: 'Auto-approved: store credit, ≤2 items, clean history' };
+  if (!withinWindow) return { approved: false, reason: 'Outside return window' };
+  if (type === 'refund') return { approved: false, reason: 'Refunds require manual approval' };
+  if (returnsIn90Days >= 3) return { approved: false, reason: `${returnsIn90Days} returns in 90d — review required` };
+  if (itemCount > 2) return { approved: false, reason: `${itemCount} items — review required` };
+  return { approved: true, reason: 'Auto-approved: ≤2 items, clean history' };
 }
 
-// Check return window
-export function isWithinWindow(
-  type: 'credit' | 'refund',
-  deliveredDate: Date,
-  now: Date = new Date()
-): boolean {
-  const diffDays = Math.floor((now.getTime() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
-  if (type === 'credit') return diffDays <= 14;
-  if (type === 'refund') return diffDays <= 7;
-  return false;
+export function isWithinWindow(type: string, deliveredDate: Date, now = new Date()) {
+  const diff = Math.floor((now.getTime() - deliveredDate.getTime()) / 86400000);
+  const total = type === 'refund' ? 7 : 14;
+  return { within: diff <= total, daysUsed: diff, daysTotal: total, daysRemaining: Math.max(0, total - diff) };
 }
