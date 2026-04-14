@@ -24,7 +24,39 @@ export async function GET(req: Request) {
       if (existing) continue;
 
       const fromLower = msg.from.toLowerCase();
-      if (fromLower.includes('missfinch') || fromLower.includes('noreply') || fromLower.includes('no-reply')) {
+      const subjectLower = msg.subject.toLowerCase();
+      
+      // Skip non-customer emails: internal, system, marketing, vendor
+      const SKIP_SENDERS = [
+        'missfinch', 'noreply', 'no-reply', 'donotreply',
+        'klaviyo.com', 'getredo.com', 'redo.com',
+        'shopify.com', 'shop.app', 'shopifyemail',
+        'vercel.com', 'github.com', 'supabase',
+        'google.com', 'googleapis.com',
+        'shippo.com', 'easypost.com',
+        'ups.com', 'usps.com', 'fedex.com',
+        'attentivemobile.com', 'postscript.io',
+        'stripe.com', 'paypal.com',
+        'meta.com', 'facebookmail.com',
+        'mailchimp.com', 'sendgrid.net',
+        'windsor.ai', 'triplewhale',
+      ];
+      
+      // Also skip by subject patterns (invoices, notifications, system emails)
+      const SKIP_SUBJECTS = [
+        'invoice', 'billing', 'payment receipt',
+        'your subscription', 'account security',
+        'verify your', 'confirm your',
+        'password reset',
+      ];
+      
+      const shouldSkip = SKIP_SENDERS.some(s => fromLower.includes(s)) ||
+                          SKIP_SUBJECTS.some(s => subjectLower.includes(s));
+      
+      // Exception: Shopify form submissions ARE customer messages
+      const isShopifyForm = fromLower.includes('shopify.com') && subjectLower.includes('new customer message');
+      
+      if (shouldSkip && !isShopifyForm) {
         await markAsRead(msg.id);
         continue;
       }
