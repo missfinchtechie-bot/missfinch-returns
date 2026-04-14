@@ -1,7 +1,7 @@
 // AI message classifier and reply drafter using Gemini API
-// Uses Gemini 2.5 Pro for higher quality classifications and drafts
+// Uses Gemini 2.5 Flash — free tier, fast, handles classification + drafting well
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 const SYSTEM_PROMPT = `You are the customer service assistant for Miss Finch NYC, a modest fashion brand based in New York.
 You respond to customer emails on behalf of the brand.
