@@ -1,74 +1,33 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import Nav from '@/components/Nav';
+import { MetricCard } from '@/components/MetricCard';
+import { Tooltip } from '@/components/Tooltip';
+import { DateRangeSelector, rangeFor, PresetKey } from '@/components/DateRangeSelector';
 
 type Summary = {
-  grossRevenue: number;
-  netRevenue: number;
-  totalRevenue: number;
-  discounts: number;
-  shipping: number;
-  tax: number;
-  refundTotal: number;
-  refundRate: number;
-  orderCount: number;
-  aov: number;
-  shopifyFees: number;
+  grossRevenue: number; netRevenue: number; totalRevenue: number;
+  discounts: number; shipping: number; tax: number;
+  refundTotal: number; refundRate: number; orderCount: number; aov: number; shopifyFees: number;
 };
-
 type DailyPoint = { date: string; revenue: number; orders: number; refunds: number; fees: number };
-
-type OverviewResponse = {
-  range: { from: string; to: string };
-  summary: Summary;
-  daily: DailyPoint[];
-};
-
-type PresetKey = 'today' | 'week' | 'month' | 'last_month' | '90d' | 'custom';
-
-const PRESETS: { key: PresetKey; label: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: 'week', label: 'This Week' },
-  { key: 'month', label: 'This Month' },
-  { key: 'last_month', label: 'Last Month' },
-  { key: '90d', label: 'Last 90 Days' },
-  { key: 'custom', label: 'Custom' },
-];
-
-function rangeFor(preset: PresetKey, customFrom?: string, customTo?: string): { from: string; to: string } {
-  const now = new Date();
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
-  const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-
-  if (preset === 'today') {
-    return { from: startOfDay(now).toISOString(), to: endOfDay(now).toISOString() };
-  }
-  if (preset === 'week') {
-    const start = new Date(now); start.setDate(now.getDate() - now.getDay());
-    return { from: startOfDay(start).toISOString(), to: endOfDay(now).toISOString() };
-  }
-  if (preset === 'month') {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { from: startOfDay(start).toISOString(), to: endOfDay(now).toISOString() };
-  }
-  if (preset === 'last_month') {
-    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const end = new Date(now.getFullYear(), now.getMonth(), 0);
-    return { from: startOfDay(start).toISOString(), to: endOfDay(end).toISOString() };
-  }
-  if (preset === '90d') {
-    const start = new Date(now); start.setDate(now.getDate() - 90);
-    return { from: startOfDay(start).toISOString(), to: endOfDay(now).toISOString() };
-  }
-  return {
-    from: customFrom ? new Date(customFrom).toISOString() : startOfDay(now).toISOString(),
-    to: customTo ? endOfDay(new Date(customTo)).toISOString() : endOfDay(now).toISOString(),
-  };
-}
+type OverviewResponse = { range: { from: string; to: string }; summary: Summary; daily: DailyPoint[]; lastSynced: string | null };
 
 const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const fmtMoneyCents = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
+
+function fmtSynced(iso: string | null): string {
+  if (!iso) return 'Never synced';
+  const d = new Date(iso);
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 export default function FinancialsPage() {
   const [authed, setAuthed] = useState(false);
@@ -81,6 +40,7 @@ export default function FinancialsPage() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState('');
+  const [plOpen, setPlOpen] = useState(true);
 
   useEffect(() => { fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
 
@@ -89,7 +49,15 @@ export default function FinancialsPage() {
     if (res.ok) { setAuthed(true); setPwErr(''); } else setPwErr('Wrong password');
   };
 
-  const range = useMemo(() => rangeFor(preset, customFrom, customTo), [preset, customFrom, customTo]);
+  const range = useMemo(() => {
+    const r = rangeFor(preset, customFrom, customTo);
+    if (!r) {
+      const now = new Date();
+      const start = new Date(now); start.setDate(now.getDate() - 365);
+      return { from: start.toISOString(), to: now.toISOString() };
+    }
+    return r;
+  }, [preset, customFrom, customTo]);
 
   const fetchOverview = useCallback(async () => {
     setLoading(true);
@@ -134,159 +102,140 @@ export default function FinancialsPage() {
 
   const s = data?.summary;
   const daily = data?.daily || [];
-  const maxBar = Math.max(1, ...daily.map(d => Math.max(d.revenue, d.refunds)));
 
-  // Mock data for sections not yet wired up
   const mockAdSpend = { meta: 4820, google: 3150, totalSpend: 7970, metaRoas: 3.2, googleRoas: 2.8, blendedRoas: 3.0, blendedCac: 42 };
   const mockExpenses = [
-    { category: 'Ad Spend', amount: 7970, pct: 48 },
-    { category: 'Shopify Fees', amount: s?.shopifyFees || 890, pct: 11 },
-    { category: 'Shipping', amount: 1240, pct: 8 },
-    { category: 'Apps & Tools', amount: 896, pct: 5 },
-    { category: 'Redo (Returns)', amount: 596, pct: 4 },
-    { category: 'Rent & Office', amount: 2800, pct: 17 },
-    { category: 'Owner Draw', amount: 3500, pct: 21 },
+    { category: 'Ad Spend', amount: 7970 },
+    { category: 'Shopify Fees', amount: s?.shopifyFees || 890 },
+    { category: 'Shipping', amount: 1240 },
+    { category: 'Apps & Tools', amount: 896 },
+    { category: 'Redo (Returns)', amount: 596 },
+    { category: 'Rent & Office', amount: 2800 },
+    { category: 'Owner Draw', amount: 3500 },
   ];
   const mockCogs = 6200;
   const netRev = s?.netRevenue || 0;
   const grossMargin = netRev - mockCogs;
   const totalExpenses = mockExpenses.reduce((s, e) => s + e.amount, 0);
-  const netProfit = grossMargin - totalExpenses + (s?.shopifyFees || 0); // shopify fees already in expenses
+  const netProfit = grossMargin - totalExpenses;
+
+  const syncButton = (
+    <button onClick={() => sync(30)} disabled={syncing}
+      className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-3 sm:px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50 transition-opacity inline-flex items-center gap-2">
+      {syncing && <span className="w-3 h-3 border-2 border-[var(--primary-foreground)]/30 border-t-[var(--primary-foreground)] rounded-full animate-spin" />}
+      {syncing ? 'Syncing…' : 'Sync Now'}
+    </button>
+  );
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
       {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[var(--primary)] text-[var(--primary-foreground)] px-7 py-3 rounded-full text-sm font-medium z-[200] shadow-xl">{toast}</div>}
-
-      <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 sm:px-6 py-3.5 shadow-sm">
-        <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <h1 className="font-heading text-lg sm:text-xl font-semibold italic text-[var(--foreground)]">Miss Finch</h1>
-            <span className="hidden sm:inline text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--muted-foreground)]">NYC</span>
-            <span className="mx-1 h-5 w-px bg-[var(--border)]" />
-            <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
-              <a href="/admin" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Returns</a>
-              <a href="/admin/messages" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Messages</a>
-              <span className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-2 sm:px-3 py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md">Financials</span>
-              <a href="/admin/analytics" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Analytics</a>
-            </div>
-          </div>
-          <button onClick={() => sync(30)} disabled={syncing}
-            className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-3 sm:px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50 transition-opacity">
-            {syncing ? 'Syncing…' : 'Sync Now'}
-          </button>
-        </div>
-      </header>
+      <Nav active="financials" right={syncButton} />
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Date picker */}
         <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Financial Overview</h2>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Financial Overview</h2>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">Last synced: {fmtSynced(data?.lastSynced || null)}</p>
+            </div>
             <button onClick={() => sync(90)} disabled={syncing}
               className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50">Backfill 90d</button>
           </div>
-          <div className="flex flex-wrap items-center gap-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-2">
-            {PRESETS.map(p => (
-              <button key={p.key} onClick={() => setPreset(p.key)}
-                className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-colors ${preset === p.key ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
-                {p.label}
-              </button>
-            ))}
-            {preset === 'custom' && (
-              <div className="flex items-center gap-2 ml-2">
-                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="text-xs px-2 py-1 border border-[var(--border)] rounded-md bg-[var(--card)]" />
-                <span className="text-[var(--muted-foreground)] text-xs">→</span>
-                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="text-xs px-2 py-1 border border-[var(--border)] rounded-md bg-[var(--card)]" />
-              </div>
-            )}
-          </div>
+          <DateRangeSelector preset={preset} onPresetChange={setPreset} customFrom={customFrom} customTo={customTo}
+            onCustomChange={(f, t) => { setCustomFrom(f); setCustomTo(t); }} includeAll={false} />
         </section>
 
         {loading && !s && <p className="text-[var(--muted-foreground)] text-sm py-12 text-center">Loading…</p>}
 
         {s && (
           <>
-            {/* ─── Revenue Cards ─── */}
+            {/* Revenue Cards */}
             <section>
               <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Revenue</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                <Card label="Net Revenue" value={fmtMoney(s.netRevenue)} sub={`${s.orderCount} orders`} accent />
-                <Card label="Gross Revenue" value={fmtMoney(s.grossRevenue)} sub="Before refunds" />
-                <Card label="Refunds" value={fmtMoney(s.refundTotal)} sub={fmtPct(s.refundRate)} negative />
-                <Card label="Avg Order" value={fmtMoneyCents(s.aov)} sub="Including tax + ship" />
-                <Card label="Discounts" value={fmtMoney(s.discounts)} sub="Codes + promos" negative />
-                <Card label="Shipping" value={fmtMoney(s.shipping)} sub="Collected from customers" />
+                <MetricCard label="Net Revenue" value={fmtMoney(s.netRevenue)} sub={`${s.orderCount} orders`} accent="emerald"
+                  formula="grossRevenue − refunds. Net revenue is what you actually kept after processing returns." />
+                <MetricCard label="Gross Revenue" value={fmtMoney(s.grossRevenue)} sub="Before refunds"
+                  formula="SUM(subtotal_price) across all non-cancelled, non-test orders in range. Excludes tax and shipping." />
+                <MetricCard label="Refunds" value={fmtMoney(s.refundTotal)} sub={fmtPct(s.refundRate)} negative
+                  formula="SUM(amount) from shopify_refunds in range. Rate = refunds / grossRevenue × 100." />
+                <MetricCard label="Avg Order" value={fmtMoneyCents(s.aov)} sub="Incl. tax + ship"
+                  formula="totalRevenue / orderCount. Average total paid per order including tax and shipping." />
+                <MetricCard label="Discounts" value={fmtMoney(s.discounts)} sub="Codes + promos" negative
+                  formula="SUM(total_discounts). Total discount dollars applied across all orders in range." />
+                <MetricCard label="Shipping" value={fmtMoney(s.shipping)} sub="Collected"
+                  formula="SUM(total_shipping). Shipping charged to customers (not what you paid carriers)." />
               </div>
             </section>
 
-            {/* ─── Revenue Chart ─── */}
+            {/* Revenue Chart */}
             <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Daily Revenue vs Refunds</h3>
-                <div className="flex items-center gap-3 text-[11px] text-[var(--muted-foreground)]">
-                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> Revenue</span>
-                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-red-400" /> Refunds</span>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div className="flex items-center">
+                  <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Daily Revenue vs Refunds</h3>
+                  <Tooltip text="Daily revenue (subtotal_price) from shopify_orders stacked vs daily refund totals. Green is what came in, red is what went back out." />
                 </div>
               </div>
               {daily.length === 0 ? (
                 <p className="text-[var(--muted-foreground)] text-sm py-12 text-center">No data in this range. Try &quot;Sync Now&quot; or a wider window.</p>
               ) : (
-                <div className="flex items-end gap-1 h-48">
-                  {daily.map(d => (
-                    <div key={d.date} className="flex-1 flex flex-col items-center gap-0.5 group relative min-w-0">
-                      <div className="w-full flex items-end gap-0.5 h-full">
-                        <div className="flex-1 bg-emerald-500 rounded-t-sm min-h-[1px]" style={{ height: `${(d.revenue / maxBar) * 100}%` }} />
-                        <div className="flex-1 bg-red-400 rounded-t-sm min-h-[1px]" style={{ height: `${(d.refunds / maxBar) * 100}%` }} />
-                      </div>
-                      <div className="hidden group-hover:block absolute bottom-full mb-2 bg-[var(--foreground)] text-[var(--background)] text-[10px] px-2 py-1 rounded whitespace-nowrap z-10">
-                        {d.date}: {fmtMoney(d.revenue)} / {fmtMoney(d.refunds)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {daily.length > 0 && (
-                <div className="flex justify-between mt-2 text-[10px] text-[var(--muted-foreground)]">
-                  <span>{daily[0].date}</span>
-                  <span>{daily[daily.length - 1].date}</span>
+                <div style={{ width: '100%', height: 280 }}>
+                  <ResponsiveContainer>
+                    <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="date" stroke="var(--muted-foreground)" fontSize={10} tickFormatter={(d: string) => d.slice(5)} />
+                      <YAxis stroke="var(--muted-foreground)" fontSize={11} tickFormatter={(v) => { const n = Number(v); return `$${n >= 1000 ? `${Math.round(n / 1000)}k` : n}`; }} />
+                      <RTooltip contentStyle={{ background: 'var(--foreground)', border: 'none', borderRadius: 8, color: 'var(--background)', fontSize: 12 }} formatter={(v) => fmtMoneyCents(Number(v))} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="revenue" fill="#10b981" name="Revenue" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="refunds" fill="#f87171" name="Refunds" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               )}
             </section>
 
-            {/* ─── Ad Spend (mock) ─── */}
+            {/* Ad Spend (mock) */}
             <section>
               <div className="flex items-center gap-2 mb-3">
                 <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Ad Spend</div>
                 <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200/80 px-2 py-0.5 rounded-lg font-semibold">Mock Data</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <Card label="Meta Ads" value={fmtMoney(mockAdSpend.meta)} sub={`${mockAdSpend.metaRoas}x ROAS`} />
-                <Card label="Google Ads" value={fmtMoney(mockAdSpend.google)} sub={`${mockAdSpend.googleRoas}x ROAS`} />
-                <Card label="Total Spend" value={fmtMoney(mockAdSpend.totalSpend)} sub={`${mockAdSpend.blendedRoas}x blended`} negative />
-                <Card label="Blended CAC" value={`$${mockAdSpend.blendedCac}`} sub={`${s.orderCount} orders`} />
+                <MetricCard label="Meta Ads" value={fmtMoney(mockAdSpend.meta)} sub={`${mockAdSpend.metaRoas}x ROAS`}
+                  formula="Placeholder — will pull from Meta Marketing API. ROAS = revenue attributed to Meta / spend." />
+                <MetricCard label="Google Ads" value={fmtMoney(mockAdSpend.google)} sub={`${mockAdSpend.googleRoas}x ROAS`}
+                  formula="Placeholder — will pull from Google Ads API. ROAS = revenue attributed to Google / spend." />
+                <MetricCard label="Total Spend" value={fmtMoney(mockAdSpend.totalSpend)} sub={`${mockAdSpend.blendedRoas}x blended`} negative
+                  formula="Meta + Google. Blended ROAS = netRevenue / totalSpend." />
+                <MetricCard label="Blended CAC" value={`$${mockAdSpend.blendedCac}`} sub={`${s.orderCount} orders`}
+                  formula="Total ad spend / new orders. Customer acquisition cost across paid channels." />
               </div>
             </section>
 
-            {/* ─── Expenses (mock) ─── */}
+            {/* Expenses (mock) */}
             <section>
               <div className="flex items-center gap-2 mb-3">
                 <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Expenses</div>
                 <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200/80 px-2 py-0.5 rounded-lg font-semibold">Mock Data</span>
+                <Tooltip text="These are placeholder values. Real expenses will come from Plaid (Chase bank feed) and manual categorization." />
               </div>
               <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
-                {mockExpenses.map((e, i) => (
-                  <div key={e.category} className={`flex items-center justify-between px-5 py-3 ${i > 0 ? 'border-t border-[var(--border)]' : ''}`}>
-                    <div className="flex items-center gap-3">
+                {mockExpenses.map((e, i) => {
+                  const pct = totalExpenses > 0 ? (e.amount / totalExpenses) * 100 : 0;
+                  return (
+                    <div key={e.category} className={`flex items-center justify-between px-5 py-3 ${i > 0 ? 'border-t border-[var(--border)]' : ''}`}>
                       <span className="text-sm text-[var(--foreground)] font-medium">{e.category}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="w-24 h-2 bg-[var(--muted)] rounded-full overflow-hidden hidden sm:block">
-                        <div className="h-full bg-[var(--ring)] rounded-full" style={{ width: `${Math.min(e.pct * 2, 100)}%` }} />
+                      <div className="flex items-center gap-4">
+                        <div className="w-24 h-2 bg-[var(--muted)] rounded-full overflow-hidden hidden sm:block">
+                          <div className="h-full bg-[var(--ring)] rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-sm font-semibold text-[var(--foreground)] w-20 text-right">{fmtMoney(e.amount)}</span>
                       </div>
-                      <span className="text-sm font-semibold text-[var(--foreground)] w-20 text-right">{fmtMoney(e.amount)}</span>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div className="flex items-center justify-between px-5 py-3 border-t-2 border-[var(--foreground)]/10 bg-[var(--muted)]">
                   <span className="text-sm text-[var(--foreground)] font-bold">Total Expenses</span>
                   <span className="text-sm font-bold text-[var(--foreground)]">{fmtMoney(totalExpenses)}</span>
@@ -294,27 +243,31 @@ export default function FinancialsPage() {
               </div>
             </section>
 
-            {/* ─── P&L Summary (mock) ─── */}
+            {/* P&L */}
             <section>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Profit & Loss</div>
+              <button onClick={() => setPlOpen(v => !v)} className="w-full flex items-center gap-2 mb-3 group">
+                <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Profit &amp; Loss</div>
                 <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200/80 px-2 py-0.5 rounded-lg font-semibold">Mock Data</span>
-              </div>
-              <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
-                <PLRow label="Net Revenue" value={netRev} bold />
-                <PLRow label="Cost of Goods Sold" value={-mockCogs} />
-                <div className="border-t border-[var(--border)]" />
-                <PLRow label="Gross Margin" value={grossMargin} bold sub={`${((grossMargin / netRev) * 100).toFixed(1)}% margin`} />
-                <PLRow label="Ad Spend (Meta + Google)" value={-mockAdSpend.totalSpend} />
-                <PLRow label="Shopify Fees" value={-(s.shopifyFees || 0)} />
-                <PLRow label="Shipping Costs" value={-1240} />
-                <PLRow label="Apps & Tools" value={-896} />
-                <PLRow label="Redo (Returns)" value={-596} />
-                <PLRow label="Rent & Office" value={-2800} />
-                <PLRow label="Owner Draw" value={-3500} />
-                <div className="border-t-2 border-[var(--foreground)]/20" />
-                <PLRow label="Net Profit" value={netProfit} bold accent />
-              </div>
+                <Tooltip text="P&L = Net Revenue − COGS − Ad Spend − Operating Expenses. COGS, ad spend, and most expenses are still placeholder." />
+                <span className="ml-auto text-[var(--muted-foreground)] text-xs group-hover:text-[var(--foreground)]">{plOpen ? '▼' : '▶'}</span>
+              </button>
+              {plOpen && (
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+                  <PLRow label="Net Revenue" value={netRev} bold formula="grossRevenue − refunds (from Shopify)." />
+                  <PLRow label="Cost of Goods Sold" value={-mockCogs} formula="Placeholder — will be sku-level cost data × units sold." />
+                  <div className="border-t border-[var(--border)]" />
+                  <PLRow label="Gross Margin" value={grossMargin} bold sub={netRev > 0 ? `${((grossMargin / netRev) * 100).toFixed(1)}% margin` : undefined} formula="Net Revenue − COGS. What's left after product costs." />
+                  <PLRow label="Ad Spend (Meta + Google)" value={-mockAdSpend.totalSpend} formula="Placeholder — from Meta + Google Ads APIs." />
+                  <PLRow label="Shopify Fees" value={-(s.shopifyFees || 0)} formula="SUM(fee) from shopify_transactions. Real data from Shopify." />
+                  <PLRow label="Shipping Costs" value={-1240} formula="Placeholder — what you paid carriers (Shippo/UPS)." />
+                  <PLRow label="Apps & Tools" value={-896} formula="Placeholder — Shopify app subscriptions + SaaS." />
+                  <PLRow label="Redo (Returns)" value={-596} formula="Placeholder — $596/mo Redo subscription." />
+                  <PLRow label="Rent & Office" value={-2800} formula="Placeholder — from Plaid bank feed." />
+                  <PLRow label="Owner Draw" value={-3500} formula="Placeholder — distributions to owner." />
+                  <div className="border-t-2 border-[var(--foreground)]/20" />
+                  <PLRow label="Net Profit" value={netProfit} bold accent formula="Gross Margin − all operating expenses." />
+                </div>
+              )}
             </section>
           </>
         )}
@@ -323,22 +276,13 @@ export default function FinancialsPage() {
   );
 }
 
-function Card({ label, value, sub, accent, negative }: { label: string; value: string; sub?: string; accent?: boolean; negative?: boolean }) {
-  return (
-    <div className={`border rounded-xl p-4 shadow-sm ${accent ? 'bg-emerald-50/50 border-emerald-200/60' : 'bg-[var(--card)] border-[var(--border)]'}`}>
-      <p className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
-      <p className={`font-heading text-2xl font-semibold mt-1 ${negative ? 'text-red-600' : accent ? 'text-emerald-700' : 'text-[var(--foreground)]'}`}>{value}</p>
-      {sub && <p className="text-[11px] text-[var(--muted-foreground)] mt-1">{sub}</p>}
-    </div>
-  );
-}
-
-function PLRow({ label, value, bold, sub, accent }: { label: string; value: number; bold?: boolean; sub?: string; accent?: boolean }) {
+function PLRow({ label, value, bold, sub, accent, formula }: { label: string; value: number; bold?: boolean; sub?: string; accent?: boolean; formula?: string }) {
   const isNeg = value < 0;
   return (
     <div className="flex items-center justify-between">
-      <div>
+      <div className="flex items-center">
         <span className={`text-sm ${bold ? 'font-semibold text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>{label}</span>
+        {formula && <Tooltip text={formula} />}
         {sub && <span className="text-[11px] text-[var(--muted-foreground)] ml-2">{sub}</span>}
       </div>
       <span className={`text-sm font-semibold ${accent ? (value >= 0 ? 'text-emerald-600' : 'text-red-600') : isNeg ? 'text-red-500' : 'text-[var(--foreground)]'}`}>

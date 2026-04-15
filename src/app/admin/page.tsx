@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import Nav from '@/components/Nav';
+import { DateRangeSelector, rangeFor, PresetKey } from '@/components/DateRangeSelector';
 
 type Return = {
   id: string; return_number: string; order_number: string; customer_name: string; customer_email: string;
@@ -32,7 +34,7 @@ const TAB_DESC: Record<string, string> = {
 
 const REJECT_REASONS = ['Tags removed', 'Signs of wear', 'Item damaged', 'Stains or odor', 'Not in original packaging', 'Wrong item returned', 'Other'];
 
-type SortKey = 'order_number' | 'customer_name' | 'subtotal' | 'type' | 'return_requested' | 'status' | 'item_count';
+type SortKey = 'order_number' | 'customer_name' | 'subtotal' | 'type' | 'return_requested' | 'status' | 'item_count' | 'customer_shipped';
 
 function fmt(d: string | null) {
   if (!d) return '—';
@@ -99,7 +101,21 @@ export default function AdminDashboard() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [preset, setPreset] = useState<PresetKey>('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [customerFilter, setCustomerFilter] = useState<string>('');
   const perPage = 50;
+
+  // Pick up ?customer= from URL on mount (from analytics page link)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const c = params.get('customer');
+    if (c) { setCustomerFilter(c); setTab('all'); }
+  }, []);
+
+  const range = useMemo(() => rangeFor(preset, customFrom, customTo), [preset, customFrom, customTo]);
 
   useEffect(() => { fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
 
@@ -113,6 +129,8 @@ export default function AdminDashboard() {
     const p = new URLSearchParams();
     if (search) p.set('search', search);
     else if (tab !== 'all') p.set('status', tab);
+    if (customerFilter) p.set('customer_name', customerFilter);
+    if (range) { p.set('from', range.from); p.set('to', range.to); }
     p.set('limit', String(perPage));
     p.set('page', String(page));
     p.set('sort', sort.key);
@@ -122,15 +140,59 @@ export default function AdminDashboard() {
     setReturns(data.returns || []);
     setTotal(data.total || 0);
     setLoading(false);
-  }, [tab, search, page, sort]);
+  }, [tab, search, page, sort, range, customerFilter]);
 
   const fetchStats = useCallback(async () => {
-    const res = await fetch('/api/returns/stats');
+    const p = new URLSearchParams();
+    if (range) { p.set('from', range.from); p.set('to', range.to); }
+    const res = await fetch(`/api/returns/stats?${p}`);
     setStats(await res.json());
-  }, []);
+  }, [range]);
 
-  useEffect(() => { if (authed) { fetchReturns(); fetchStats(); } }, [authed, tab, search, page, sort, fetchReturns, fetchStats]);
-  useEffect(() => { setPage(1); }, [tab, search, sort]);
+  useEffect(() => { if (authed) { fetchReturns(); fetchStats(); } }, [authed, tab, search, page, sort, range, customerFilter, fetchReturns, fetchStats]);
+  useEffect(() => { setPage(1); }, [tab, search, sort, range, customerFilter]);
+
+  // When switching to In Transit tab, default sort to oldest-shipped first
+  useEffect(() => {
+    if (tab === 'shipping' && sort.key === 'return_requested' && sort.dir === 'desc') {
+      setSort({ key: 'customer_shipped', dir: 'asc' });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const exportCsv = () => {
+    const rows = filteredReturns.map(r => ({
+      order: r.order_number,
+      customer: r.customer_name,
+      email: r.customer_email,
+      type: r.type,
+      status: r.status,
+      outcome: r.outcome || '',
+      items: r.item_count,
+      subtotal: r.subtotal,
+      final_amount: r.final_amount,
+      requested: r.return_requested || '',
+      shipped: r.customer_shipped || '',
+      delivered: r.delivered_to_us || '',
+      processed: r.processed_at || '',
+      reason: r.reason || '',
+      reject_reason: r.reject_reason || '',
+    }));
+    if (rows.length === 0) { flash('Nothing to export'); return; }
+    const headers = Object.keys(rows[0]);
+    const escape = (v: unknown) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [headers.join(','), ...rows.map(r => headers.map(h => escape((r as Record<string, unknown>)[h])).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `returns-${tab}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Run maintenance on first load (moves stale inbox→backlog, stale shipping→lost)
   useEffect(() => {
@@ -203,28 +265,33 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-[var(--background)]">
       {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[var(--primary)] text-[var(--primary-foreground)] px-7 py-3 rounded-full text-sm font-medium z-[200] shadow-xl">{toast}</div>}
 
-      {/* ─── Header ─── */}
-      <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 sm:px-6 py-3.5 shadow-sm">
-        <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <h1 className="font-heading text-lg sm:text-xl font-semibold italic text-[var(--foreground)]">Miss Finch</h1>
-            <span className="hidden sm:inline text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--muted-foreground)]">NYC</span>
-            <span className="mx-1 h-5 w-px bg-[var(--border)]" />
-            <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
-              <span className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-2 sm:px-3 py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md">Returns</span>
-              <a href="/admin/messages" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Messages</a>
-              <a href="/admin/financials" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Financials</a>
-              <a href="/admin/analytics" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Analytics</a>
-            </div>
-          </div>
-          <div className="relative flex-1 max-w-xs sm:max-w-sm">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order # or name..."
-              className="w-full py-2.5 px-4 pl-9 bg-[var(--muted)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:border-[var(--ring)] focus:ring-1 focus:ring-[var(--ring)] placeholder-[var(--muted-foreground)] transition-all" />
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-xs">🔍</span>
-            {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)]">✕</button>}
-          </div>
+      <Nav active="returns" right={
+        <div className="relative w-56 sm:w-72">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order # or name..."
+            className="w-full py-2.5 px-4 pl-9 bg-[var(--muted)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:border-[var(--ring)] focus:ring-1 focus:ring-[var(--ring)] placeholder-[var(--muted-foreground)] transition-all" />
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-xs">🔍</span>
+          {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)]">✕</button>}
         </div>
-      </header>
+      } />
+
+      {/* Date range + filters bar */}
+      <div className="bg-[var(--card)] border-b border-[var(--border)]">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center gap-3">
+          <DateRangeSelector preset={preset} onPresetChange={setPreset} customFrom={customFrom} customTo={customTo}
+            onCustomChange={(f, t) => { setCustomFrom(f); setCustomTo(t); }} />
+          {customerFilter && (
+            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200/70 px-3 py-1.5 rounded-lg text-[11px] text-amber-700">
+              <span className="font-semibold">Filtering:</span>
+              <span>{customerFilter}</span>
+              <button onClick={() => setCustomerFilter('')} className="hover:text-amber-900 font-bold">✕</button>
+            </div>
+          )}
+          <button onClick={exportCsv}
+            className="ml-auto text-[11px] tracking-wider uppercase font-semibold px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)] transition-colors">
+            ↓ Export CSV
+          </button>
+        </div>
+      </div>
 
       {/* ─── Stats Cards ─── */}
       <div className="bg-[var(--card)] border-b border-[var(--border)]">
@@ -294,6 +361,12 @@ export default function AdminDashboard() {
           <p className="text-sm text-[var(--muted-foreground)] font-medium">{search ? `Search: "${search}"` : TAB_DESC[tab]}</p>
           <span className="text-sm text-[var(--muted-foreground)]">{total} result{total !== 1 ? 's' : ''}</span>
         </div>
+
+        {tab === 'old' && !loading && filteredReturns.length > 0 && (
+          <div className="mb-3 bg-orange-50/60 border border-orange-200/70 rounded-xl px-4 py-3 text-xs text-orange-700">
+            <span className="font-semibold">Backlog:</span> Returns delivered 30+ days ago with no action taken. Process or reject to clear them.
+          </div>
+        )}
 
         {loading && <div className="text-center py-20 text-[var(--muted-foreground)] text-sm">Loading...</div>}
 

@@ -13,9 +13,12 @@ export async function GET(req: NextRequest) {
   const offset = (page - 1) * limit;
   const sortKey = searchParams.get('sort') || 'return_requested';
   const sortDir = searchParams.get('dir') === 'asc';
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+  const customerName = searchParams.get('customer_name');
 
   // Validate sort key
-  const allowedSorts = ['order_number', 'customer_name', 'subtotal', 'type', 'return_requested', 'status', 'item_count'];
+  const allowedSorts = ['order_number', 'customer_name', 'subtotal', 'type', 'return_requested', 'status', 'item_count', 'customer_shipped'];
   const safeSort = allowedSorts.includes(sortKey) ? sortKey : 'return_requested';
 
   let query = supabase
@@ -33,6 +36,13 @@ export async function GET(req: NextRequest) {
       `customer_name.ilike.%${search}%,order_number.ilike.%${search}%,return_number.ilike.%${search}%`
     );
   }
+
+  if (customerName && !search) {
+    query = query.eq('customer_name', customerName);
+  }
+
+  if (from) query = query.gte('return_requested', from);
+  if (to) query = query.lte('return_requested', to);
 
   const { data, error, count } = await query;
 

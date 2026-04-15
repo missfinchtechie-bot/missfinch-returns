@@ -92,8 +92,17 @@ export async function GET(req: Request) {
 
   const daily = Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date));
 
+  const { data: lastSyncRow } = await supabase
+    .from('shopify_orders')
+    .select('synced_at')
+    .order('synced_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const lastSynced: string | null = lastSyncRow?.synced_at || null;
+
   return NextResponse.json({
     range: { from, to },
+    lastSynced,
     summary: {
       grossRevenue,
       netRevenue,

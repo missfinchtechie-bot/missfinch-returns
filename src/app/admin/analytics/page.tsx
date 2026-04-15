@@ -1,6 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import Nav from '@/components/Nav';
+import { MetricCard } from '@/components/MetricCard';
+import { Tooltip } from '@/components/Tooltip';
+import { DateRangeSelector, rangeFor, PresetKey } from '@/components/DateRangeSelector';
 
 type Analytics = {
   overview: {
@@ -8,6 +13,8 @@ type Analytics = {
     rejectionRate: number; avgItemsPerReturn: number; zeroValueCount: number;
     last30Days: number; prior30Days: number; trend: number;
     totalRefunded: number; totalCredited: number; totalRejected: number; totalLost: number;
+    avgDaysToReturn: number; avgDaysToProcess: number;
+    orderCount: number | null; returnRate: number | null;
   };
   statusCounts: Record<string, number>;
   outcomeCounts: Record<string, number>;
@@ -19,24 +26,15 @@ type Analytics = {
 
 const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
-function Tooltip({ text }: { text: string }) {
-  return (
-    <div className="group relative inline-block ml-1 cursor-help">
-      <span className="text-[10px] text-[var(--muted-foreground)]/60 hover:text-[var(--muted-foreground)] transition-colors">ⓘ</span>
-      <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-[var(--foreground)] text-[var(--background)] text-[11px] px-3 py-2 rounded-lg shadow-xl z-50 leading-relaxed whitespace-normal">
-        {text}
-        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-[var(--foreground)]" />
-      </div>
-    </div>
-  );
-}
-
 export default function AnalyticsPage() {
   const [authed, setAuthed] = useState(false);
   const [pw, setPw] = useState('');
   const [pwErr, setPwErr] = useState('');
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [preset, setPreset] = useState<PresetKey>('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
 
   useEffect(() => { fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
 
@@ -45,13 +43,19 @@ export default function AnalyticsPage() {
     if (res.ok) { setAuthed(true); setPwErr(''); } else setPwErr('Wrong password');
   };
 
-  useEffect(() => {
-    if (!authed) return;
+  const range = useMemo(() => rangeFor(preset, customFrom, customTo), [preset, customFrom, customTo]);
+
+  const fetchData = useCallback(async () => {
     setLoading(true);
-    fetch('/api/returns/analytics')
-      .then(r => r.json()).then(d => setData(d)).catch(() => {})
-      .finally(() => setLoading(false));
-  }, [authed]);
+    const p = new URLSearchParams();
+    if (range) { p.set('from', range.from); p.set('to', range.to); }
+    try {
+      const res = await fetch(`/api/returns/analytics?${p}`);
+      if (res.ok) setData(await res.json());
+    } finally { setLoading(false); }
+  }, [range]);
+
+  useEffect(() => { if (authed) fetchData(); }, [authed, fetchData]);
 
   if (!authed) {
     return (
@@ -70,242 +74,211 @@ export default function AnalyticsPage() {
     );
   }
 
-  if (loading || !data) {
-    return (<div className="min-h-screen bg-[var(--background)]"><Header /><div className="text-center py-20 text-[var(--muted-foreground)]">Loading analytics...</div></div>);
-  }
-
-  const o = data.overview;
-  const maxMonthly = Math.max(1, ...data.monthlyTrend.map(m => m.returns));
-  const maxDow = Math.max(1, ...data.dayOfWeek.map(d => d.count));
-  const doneTotal = (o.totalRefunded || 0) + (o.totalCredited || 0) + (o.totalRejected || 0) + (o.totalLost || 0);
-
   return (
     <div className="min-h-screen bg-[var(--background)]">
-      <Header />
-
+      <Nav active="analytics" />
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
-        <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Returns Analytics</h2>
-
-        {/* ─── Overview Cards ─── */}
-        <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <MetricCard label="Total Returns" value={o.totalReturns.toLocaleString()} formula="COUNT(*) from returns table. Includes all statuses: inbox, shipping, backlog, done." />
-          <MetricCard label="Total Value" value={fmtMoney(o.totalValue)} formula={`SUM(subtotal) across all ${o.totalReturns} returns. ${o.zeroValueCount} returns have $0 value (rejected Redo imports with no value captured).`} />
-          <MetricCard label="Avg Return" value={`$${o.avgValueExcZero.toFixed(0)}`}
-            sub={o.zeroValueCount > 0 ? `excl. ${o.zeroValueCount} at $0` : undefined}
-            formula={`AVG(subtotal) WHERE subtotal > 0. Excludes ${o.zeroValueCount} returns with $0 (Redo imports missing value). Including $0s: $${o.avgValue.toFixed(0)}.`} />
-          <MetricCard label="Rejection Rate" value={`${o.rejectionRate}%`}
-            sub={`${o.totalRejected} of ${doneTotal} completed`}
-            formula={`COUNT(outcome='rejected') / COUNT(status='done') × 100. Only counts completed returns (refunded + credited + rejected + lost = ${doneTotal}). Does not include inbox, shipping, or backlog.`} />
-          <MetricCard label="Last 30 Days" value={String(o.last30Days)}
-            sub={o.trend > 0 ? `↑ ${o.trend}% vs prior 30d` : o.trend < 0 ? `↓ ${Math.abs(o.trend)}% vs prior 30d` : 'Flat vs prior 30d'}
-            trend={o.trend}
-            formula={`COUNT(*) WHERE return_requested >= 30 days ago. Prior 30 days: ${o.prior30Days}. Trend: (${o.last30Days} - ${o.prior30Days}) / ${o.prior30Days} × 100 = ${o.trend}%. Positive = more returns (bad).`} />
-          <MetricCard label="Avg Items" value={o.avgItemsPerReturn.toFixed(1)} sub="per return"
-            formula="AVG(item_count) across all returns. Most returns are single-item." />
-        </section>
-
-        {/* ─── Outcome Summary ─── */}
-        <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <MetricCard label="Refunded" value={fmtMoney(o.totalRefunded)} sub={`${data.outcomeCounts.refund || 0} returns`} accent="emerald"
-            formula={`SUM(subtotal) WHERE outcome='refund'. Count: ${data.outcomeCounts.refund || 0}. These were refunded to customer's original payment method.`} />
-          <MetricCard label="Credited" value={fmtMoney(o.totalCredited)} sub={`${data.outcomeCounts.credit || 0} returns`} accent="emerald"
-            formula={`SUM(subtotal) WHERE outcome='credit'. Count: ${data.outcomeCounts.credit || 0}. Issued as Shopify gift cards (store credit).`} />
-          <MetricCard label="Rejected" value={fmtMoney(o.totalRejected)} sub={`${data.outcomeCounts.rejected || 0} returns`} accent="red"
-            formula={`SUM(subtotal) WHERE outcome='rejected'. Count: ${data.outcomeCounts.rejected || 0}. Customer was denied the return (tags removed, wear, etc).`} />
-          <MetricCard label="Lost" value={fmtMoney(o.totalLost)} sub={`${data.outcomeCounts.lost || 0} returns`} accent="purple"
-            formula={`SUM(subtotal) WHERE outcome='lost'. Count: ${data.outcomeCounts.lost || 0}. Auto-marked: in transit 45+ days with no delivery confirmation.`} />
-        </section>
-
-        {/* ─── Monthly Trend ─── */}
-        <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center">
-              <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Monthly Returns (12 months)</h3>
-              <Tooltip text="COUNT(*) grouped by YYYY-MM of return_requested date. Stacked by type: refund (amber), credit (green), exchange (blue). Hover bars for exact numbers." />
-            </div>
-            <div className="flex items-center gap-3 text-[11px] text-[var(--muted-foreground)]">
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-500" /> Refunds</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> Credits</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-sky-500" /> Exchanges</span>
-            </div>
-          </div>
-          <div className="flex items-end gap-2 h-48">
-            {data.monthlyTrend.map(m => {
-              const total = m.refunds + m.credits + m.exchanges;
-              const height = (m.returns / maxMonthly) * 100;
-              return (
-                <div key={m.month} className="flex-1 flex flex-col items-center group relative min-w-0">
-                  <div className="w-full flex flex-col justify-end h-full">
-                    <div className="w-full rounded-t-sm overflow-hidden flex flex-col" style={{ height: `${height}%` }}>
-                      {total > 0 && <div className="w-full bg-amber-500 flex-shrink-0" style={{ flexGrow: m.refunds }} />}
-                      {total > 0 && <div className="w-full bg-emerald-500 flex-shrink-0" style={{ flexGrow: m.credits }} />}
-                      {total > 0 && <div className="w-full bg-sky-500 flex-shrink-0" style={{ flexGrow: m.exchanges }} />}
-                    </div>
-                  </div>
-                  <div className="hidden group-hover:block absolute bottom-full mb-2 bg-[var(--foreground)] text-[var(--background)] text-[10px] px-3 py-2 rounded-lg whitespace-nowrap z-10 shadow-xl">
-                    <div className="font-semibold mb-1">{m.month}</div>
-                    <div>{m.returns} returns · {fmtMoney(m.value)}</div>
-                    <div className="text-[9px] opacity-80 mt-0.5">{m.refunds} refund · {m.credits} credit · {m.exchanges} exchange</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex justify-between mt-2 text-[10px] text-[var(--muted-foreground)]">
-            <span>{data.monthlyTrend[0]?.month}</span>
-            <span>{data.monthlyTrend[data.monthlyTrend.length - 1]?.month}</span>
-          </div>
-        </section>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* ─── Type Breakdown ─── */}
-          <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-            <div className="flex items-center mb-4">
-              <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">By Type</h3>
-              <Tooltip text="Grouped by returns.type field. 'Refund' = money back to payment method. 'Credit' = store credit (gift card). 'Exchange' = swap for different item (processed as credit)." />
-            </div>
-            <div className="space-y-3">
-              {Object.entries(data.typeCounts).sort((a, b) => b[1].count - a[1].count).map(([type, d]) => {
-                const pct = o.totalReturns > 0 ? (d.count / o.totalReturns) * 100 : 0;
-                const colors: Record<string, string> = { refund: 'bg-amber-500', credit: 'bg-emerald-500', exchange: 'bg-sky-500' };
-                return (
-                  <div key={type}>
-                    <div className="flex items-center justify-between text-sm mb-1">
-                      <span className="text-[var(--foreground)] font-medium capitalize">{type}</span>
-                      <span className="text-[var(--muted-foreground)]">{d.count} ({pct.toFixed(0)}%) · {fmtMoney(d.value)}</span>
-                    </div>
-                    <div className="h-2.5 w-full bg-[var(--muted)] rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${colors[type] || 'bg-stone-400'} transition-all`} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* ─── Outcome Breakdown ─── */}
-          <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-            <div className="flex items-center mb-4">
-              <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Outcomes</h3>
-              <Tooltip text="Only completed returns (status='done'). Outcome field: refund, credit, rejected, or lost. Percentage = count / total done." />
-            </div>
-            <div className="space-y-3">
-              {Object.entries(data.outcomeCounts).sort((a, b) => b[1] - a[1]).map(([outcome, count]) => {
-                const total = Object.values(data.outcomeCounts).reduce((s, c) => s + c, 0);
-                const pct = total > 0 ? (count / total) * 100 : 0;
-                const colors: Record<string, string> = { refund: 'bg-amber-500', credit: 'bg-emerald-500', rejected: 'bg-red-400', lost: 'bg-purple-400' };
-                return (
-                  <div key={outcome}>
-                    <div className="flex items-center justify-between text-sm mb-1">
-                      <span className="text-[var(--foreground)] font-medium capitalize">{outcome}</span>
-                      <span className="text-[var(--muted-foreground)]">{count} ({pct.toFixed(0)}%)</span>
-                    </div>
-                    <div className="h-2.5 w-full bg-[var(--muted)] rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${colors[outcome] || 'bg-stone-400'} transition-all`} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Returns Analytics</h2>
+          <DateRangeSelector preset={preset} onPresetChange={setPreset} customFrom={customFrom} customTo={customTo}
+            onCustomChange={(f, t) => { setCustomFrom(f); setCustomTo(t); }} />
         </div>
 
-        {/* ─── Day of Week ─── */}
-        <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-          <div className="flex items-center mb-4">
-            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Returns by Day of Week</h3>
-            <Tooltip text="EXTRACT(DOW FROM return_requested). Sun=0 through Sat=6. Pattern reflects your Orthodox Jewish customer base — Saturday (Shabbat) is consistently lowest." />
-          </div>
-          <div className="flex items-end gap-3 h-36">
-            {data.dayOfWeek.map((d, i) => {
-              const pct = (d.count / maxDow) * 100;
-              const isSat = i === 6;
-              return (
-                <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 group">
-                  <div className="text-[11px] font-semibold text-[var(--foreground)] opacity-0 group-hover:opacity-100 transition-opacity">{d.count}</div>
-                  <div className={`w-full rounded-t-lg transition-all ${isSat ? 'bg-[var(--ring)]/20' : 'bg-[var(--ring)]/40'} group-hover:bg-[var(--ring)]/70`} style={{ height: `${pct}%` }} />
-                  <span className={`text-[11px] font-medium ${isSat ? 'text-[var(--muted-foreground)]' : 'text-[var(--foreground)]'}`}>{d.day}</span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ─── Repeat Returners ─── */}
-        <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-[var(--border)] flex items-center">
-            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Repeat Returners (3+ returns)</h3>
-            <Tooltip text="GROUP BY customer_name HAVING COUNT(*) >= 3. Sorted by return count desc. Value = SUM(subtotal). Includes all return types and statuses." />
-          </div>
-          <div className="divide-y divide-[var(--border)]">
-            {data.repeatReturners.map((c, i) => (
-              <div key={c.name} className={`flex items-center justify-between px-5 py-3 ${i < 3 ? 'bg-red-50/30' : ''}`}>
-                <div className="flex items-center gap-3">
-                  <span className={`text-[11px] w-6 h-6 rounded-full flex items-center justify-center font-bold ${i < 3 ? 'bg-red-100 text-red-600' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'}`}>{i + 1}</span>
-                  <span className="text-sm text-[var(--foreground)] font-medium">{c.name}</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className={`text-sm font-semibold ${c.count >= 10 ? 'text-red-600' : c.count >= 6 ? 'text-amber-600' : 'text-[var(--foreground)]'}`}>{c.count} returns</span>
-                  <span className="text-sm text-[var(--muted-foreground)] w-20 text-right">{fmtMoney(c.value)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ─── Data Quality Note ─── */}
-        <section className="bg-amber-50/50 border border-amber-200/60 rounded-xl p-4">
-          <div className="text-[11px] text-amber-700 uppercase tracking-wider font-semibold mb-1">Data Notes</div>
-          <div className="text-xs text-amber-700/80 space-y-1">
-            <p>{o.zeroValueCount} returns have $0 value — these are rejected Redo imports where the return value was not captured during migration. They are excluded from average calculations but included in counts.</p>
-            <p>Return reasons are mostly empty for Redo imports (pre-migration data). New returns submitted via portal will have reasons.</p>
-            <p>All data sourced from Supabase returns table ({o.totalReturns} rows). Dates based on return_requested timestamp.</p>
-          </div>
-        </section>
+        {loading || !data ? (
+          <div className="text-center py-20 text-[var(--muted-foreground)]">Loading analytics…</div>
+        ) : (
+          <AnalyticsContent data={data} />
+        )}
       </main>
     </div>
   );
 }
 
-function Header() {
+function AnalyticsContent({ data }: { data: Analytics }) {
+  const o = data.overview;
+  const doneTotal = (o.totalRefunded || 0) + (o.totalCredited || 0) + (o.totalRejected || 0) + (o.totalLost || 0);
+  const maxDow = Math.max(1, ...data.dayOfWeek.map(d => d.count));
+
   return (
-    <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 sm:px-6 py-3.5 shadow-sm">
-      <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          <h1 className="font-heading text-lg sm:text-xl font-semibold italic text-[var(--foreground)]">Miss Finch</h1>
-          <span className="hidden sm:inline text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--muted-foreground)]">NYC</span>
-          <span className="mx-1 h-5 w-px bg-[var(--border)]" />
-          <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
-            <a href="/admin" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Returns</a>
-            <a href="/admin/messages" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Messages</a>
-            <a href="/admin/financials" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Financials</a>
-            <span className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-2 sm:px-3 py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md">Analytics</span>
+    <>
+      {/* Overview Cards */}
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MetricCard label="Total Returns" value={o.totalReturns.toLocaleString()} formula="COUNT(*) from returns table for the selected date range, filtered by return_requested." />
+        <MetricCard label="Total Value" value={fmtMoney(o.totalValue)} formula={`SUM(subtotal) across ${o.totalReturns} returns. ${o.zeroValueCount} returns have $0 value (Redo imports).`} />
+        <MetricCard label="Avg Return" value={`$${o.avgValueExcZero.toFixed(0)}`}
+          sub={o.zeroValueCount > 0 ? `excl. ${o.zeroValueCount} at $0` : undefined}
+          formula={`AVG(subtotal) WHERE subtotal > 0. Excludes ${o.zeroValueCount} $0 returns. Including $0s: $${o.avgValue.toFixed(0)}.`} />
+        <MetricCard label="Rejection Rate" value={`${o.rejectionRate}%`}
+          sub={`${data.outcomeCounts.rejected || 0} of ${doneTotal > 0 ? Object.values(data.outcomeCounts).reduce((s, c) => s + c, 0) : 0} completed`}
+          formula={`COUNT(outcome='rejected') / COUNT(status='done') × 100. Only counts completed returns.`} />
+        <MetricCard label="Last 30 Days" value={String(o.last30Days)}
+          sub={o.trend > 0 ? `↑ ${o.trend}% vs prior 30d` : o.trend < 0 ? `↓ ${Math.abs(o.trend)}% vs prior 30d` : 'Flat vs prior 30d'}
+          trend={o.trend}
+          formula={`Returns in last 30 days vs prior 30 days. Based on return_requested. Positive trend = more returns (bad).`} />
+        <MetricCard label="Avg Items" value={o.avgItemsPerReturn.toFixed(1)} sub="per return"
+          formula="AVG(item_count) across all returns in range." />
+      </section>
+
+      {/* Timing Metrics */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <MetricCard label="Avg Days to Return" value={o.avgDaysToReturn > 0 ? `${o.avgDaysToReturn}d` : '—'} sub="from delivery to request"
+          formula="AVG(return_requested - delivered_to_customer) for returns with both dates. Excludes outliers >365 days." />
+        <MetricCard label="Avg Days to Process" value={o.avgDaysToProcess > 0 ? `${o.avgDaysToProcess}d` : '—'} sub="from arrival to decision"
+          formula="AVG(processed_at - delivered_to_us) for returns with both dates. Measures how fast you close out returns after they arrive." />
+        <MetricCard label="Return Rate" value={o.returnRate !== null ? `${o.returnRate}%` : '—'}
+          sub={o.orderCount !== null ? `${o.totalReturns} of ${o.orderCount} orders` : 'Sync Shopify to enable'}
+          formula={o.orderCount !== null ? `returns / shopify_orders × 100 in the selected range.` : 'Requires shopify_orders sync. Run Sync on Financials page.'} />
+        <MetricCard label="Completed" value={`${doneTotal > 0 ? Object.values(data.outcomeCounts).reduce((s, c) => s + c, 0) : 0}`}
+          sub={`${fmtMoney(doneTotal)} value`}
+          formula={`COUNT(status='done'): returns that have been refunded, credited, rejected, or marked lost.`} />
+      </section>
+
+      {/* Outcome Summary */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <MetricCard label="Refunded" value={fmtMoney(o.totalRefunded)} sub={`${data.outcomeCounts.refund || 0} returns`} accent="emerald"
+          formula={`SUM(subtotal) WHERE outcome='refund'.`} />
+        <MetricCard label="Credited" value={fmtMoney(o.totalCredited)} sub={`${data.outcomeCounts.credit || 0} returns`} accent="emerald"
+          formula={`SUM(subtotal) WHERE outcome='credit'. Issued as Shopify gift cards.`} />
+        <MetricCard label="Rejected" value={fmtMoney(o.totalRejected)} sub={`${data.outcomeCounts.rejected || 0} returns`} accent="red"
+          formula={`SUM(subtotal) WHERE outcome='rejected'.`} />
+        <MetricCard label="Lost" value={fmtMoney(o.totalLost)} sub={`${data.outcomeCounts.lost || 0} returns`} accent="purple"
+          formula={`SUM(subtotal) WHERE outcome='lost'. Auto-marked: in transit 45+ days with no delivery.`} />
+      </section>
+
+      {/* Monthly Trend */}
+      <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div className="flex items-center">
+            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Monthly Returns</h3>
+            <Tooltip text="Grouped by YYYY-MM of return_requested. Stacked by type: refund (amber), credit (green), exchange (blue)." />
           </div>
         </div>
-      </div>
-    </header>
-  );
-}
+        {data.monthlyTrend.length === 0 ? (
+          <p className="text-[var(--muted-foreground)] text-sm py-12 text-center">No data in this range.</p>
+        ) : (
+          <div style={{ width: '100%', height: 280 }}>
+            <ResponsiveContainer>
+              <BarChart data={data.monthlyTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="month" stroke="var(--muted-foreground)" fontSize={11} />
+                <YAxis stroke="var(--muted-foreground)" fontSize={11} />
+                <RTooltip contentStyle={{ background: 'var(--foreground)', border: 'none', borderRadius: 8, color: 'var(--background)', fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="refunds" stackId="a" fill="#f59e0b" name="Refunds" />
+                <Bar dataKey="credits" stackId="a" fill="#10b981" name="Credits" />
+                <Bar dataKey="exchanges" stackId="a" fill="#0ea5e9" name="Exchanges" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </section>
 
-function MetricCard({ label, value, sub, formula, trend, accent }: { label: string; value: string; sub?: string; formula: string; trend?: number; accent?: string }) {
-  const accentClasses: Record<string, string> = {
-    emerald: 'bg-emerald-50/50 border-emerald-200/60',
-    red: 'bg-red-50/50 border-red-200/60',
-    purple: 'bg-purple-50/50 border-purple-200/60',
-  };
-  const valueClasses: Record<string, string> = {
-    emerald: 'text-emerald-700',
-    red: 'text-red-600',
-    purple: 'text-purple-600',
-  };
-  return (
-    <div className={`border rounded-xl p-4 shadow-sm ${accent ? accentClasses[accent] || '' : 'bg-[var(--card)] border-[var(--border)]'}`}>
-      <div className="flex items-center">
-        <p className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
-        <Tooltip text={formula} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Type Breakdown */}
+        <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+          <div className="flex items-center mb-4">
+            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">By Type</h3>
+            <Tooltip text="Grouped by returns.type. 'Refund' = money back. 'Credit' = store credit. 'Exchange' = swap, processed as credit." />
+          </div>
+          <div className="space-y-3">
+            {Object.entries(data.typeCounts).sort((a, b) => b[1].count - a[1].count).map(([type, d]) => {
+              const pct = o.totalReturns > 0 ? (d.count / o.totalReturns) * 100 : 0;
+              const colors: Record<string, string> = { refund: 'bg-amber-500', credit: 'bg-emerald-500', exchange: 'bg-sky-500' };
+              return (
+                <div key={type}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-[var(--foreground)] font-medium capitalize">{type}</span>
+                    <span className="text-[var(--muted-foreground)]">{d.count} ({pct.toFixed(0)}%) · {fmtMoney(d.value)}</span>
+                  </div>
+                  <div className="h-2.5 w-full bg-[var(--muted)] rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${colors[type] || 'bg-stone-400'} transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Outcome Breakdown */}
+        <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+          <div className="flex items-center mb-4">
+            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Outcomes</h3>
+            <Tooltip text="Only completed returns (status='done'). Outcome: refund, credit, rejected, or lost." />
+          </div>
+          <div className="space-y-3">
+            {Object.entries(data.outcomeCounts).sort((a, b) => b[1] - a[1]).map(([outcome, count]) => {
+              const total = Object.values(data.outcomeCounts).reduce((s, c) => s + c, 0);
+              const pct = total > 0 ? (count / total) * 100 : 0;
+              const colors: Record<string, string> = { refund: 'bg-amber-500', credit: 'bg-emerald-500', rejected: 'bg-red-400', lost: 'bg-purple-400' };
+              return (
+                <div key={outcome}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-[var(--foreground)] font-medium capitalize">{outcome}</span>
+                    <span className="text-[var(--muted-foreground)]">{count} ({pct.toFixed(0)}%)</span>
+                  </div>
+                  <div className="h-2.5 w-full bg-[var(--muted)] rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${colors[outcome] || 'bg-stone-400'} transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       </div>
-      <p className={`font-heading text-2xl font-semibold mt-1 ${accent ? valueClasses[accent] || 'text-[var(--foreground)]' : 'text-[var(--foreground)]'}`}>{value}</p>
-      {sub && <p className={`text-[11px] mt-1 ${trend !== undefined ? (trend > 0 ? 'text-red-500' : trend < 0 ? 'text-emerald-600' : 'text-[var(--muted-foreground)]') : 'text-[var(--muted-foreground)]'}`}>{sub}</p>}
-    </div>
+
+      {/* Day of Week */}
+      <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+        <div className="flex items-center mb-4">
+          <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Returns by Day of Week</h3>
+          <Tooltip text="EXTRACT(DOW FROM return_requested). Saturday is lowest — Shabbat effect from Orthodox Jewish customer base." />
+        </div>
+        <div style={{ width: '100%', height: 200 }}>
+          <ResponsiveContainer>
+            <BarChart data={data.dayOfWeek} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis dataKey="day" stroke="var(--muted-foreground)" fontSize={11} />
+              <YAxis stroke="var(--muted-foreground)" fontSize={11} />
+              <RTooltip contentStyle={{ background: 'var(--foreground)', border: 'none', borderRadius: 8, color: 'var(--background)', fontSize: 12 }} />
+              <Bar dataKey="count" fill="#8b7355" radius={[6, 6, 0, 0]} name="Returns" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="text-[10px] text-[var(--muted-foreground)] mt-2">Peak: {data.dayOfWeek.reduce((a, b) => a.count > b.count ? a : b, data.dayOfWeek[0])?.day} · Low: {data.dayOfWeek.reduce((a, b) => a.count < b.count ? a : b, data.dayOfWeek[0])?.day} · Max {maxDow}</div>
+      </section>
+
+      {/* Repeat Returners */}
+      <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--border)] flex items-center">
+          <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Repeat Returners (3+ returns)</h3>
+          <Tooltip text="GROUP BY customer_name HAVING COUNT(*) >= 3. Click a name to filter the returns dashboard." />
+        </div>
+        <div className="divide-y divide-[var(--border)]">
+          {data.repeatReturners.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-[var(--muted-foreground)]">No repeat returners in this range.</div>
+          ) : data.repeatReturners.map((c, i) => (
+            <a key={c.name} href={`/admin?customer=${encodeURIComponent(c.name)}`}
+              className={`flex items-center justify-between px-5 py-3 hover:bg-[var(--accent)]/40 transition-colors ${i < 3 ? 'bg-red-50/30' : ''}`}>
+              <div className="flex items-center gap-3">
+                <span className={`text-[11px] w-6 h-6 rounded-full flex items-center justify-center font-bold ${i < 3 ? 'bg-red-100 text-red-600' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'}`}>{i + 1}</span>
+                <span className="text-sm text-[var(--foreground)] font-medium">{c.name}</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className={`text-sm font-semibold ${c.count >= 10 ? 'text-red-600' : c.count >= 6 ? 'text-amber-600' : 'text-[var(--foreground)]'}`}>{c.count} returns</span>
+                <span className="text-sm text-[var(--muted-foreground)] w-20 text-right">{fmtMoney(c.value)}</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      {/* Data Quality Note */}
+      <section className="bg-amber-50/50 border border-amber-200/60 rounded-xl p-4">
+        <div className="text-[11px] text-amber-700 uppercase tracking-wider font-semibold mb-1">Data Notes</div>
+        <div className="text-xs text-amber-700/80 space-y-1">
+          <p>{o.zeroValueCount} returns in this range have $0 value — these are rejected Redo imports where value wasn&apos;t captured during migration. They&apos;re excluded from average calculations but included in counts.</p>
+          {o.orderCount === null && <p>Return Rate is unavailable — Shopify orders haven&apos;t been synced. Go to Financials → Sync Now to enable.</p>}
+        </div>
+      </section>
+    </>
   );
 }
