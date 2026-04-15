@@ -161,6 +161,10 @@ const engagementTone = (e: number | null): string => {
   return 'text-red-600';
 };
 const igUrl = (handle: string) => `https://instagram.com/${handle.replace(/^@/, '')}`;
+const DEAL_LABELS: Record<string, string> = {
+  gifted_only: 'Gifted', gifted_paid: 'Gifted + Paid', paid_only: 'Paid', affiliate: 'Affiliate',
+};
+const formatDealType = (t: string | null) => t ? (DEAL_LABELS[t] || t) : null;
 
 function StatusBadge({ status, large }: { status: string; large?: boolean }) {
   const m = STATUS_META[status] || STATUS_META.prospect;
@@ -325,13 +329,11 @@ export default function InfluencersPage() {
         {role === 'admin' && (
           <section>
             <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Pipeline</div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <StatCard tone="sky" label="Active Collabs" value={String(stats?.activeCollabs || 0)} sub="not posted/passed" formula="Collabs whose status is not posted/passed/watchlist." />
-              <StatCard tone="stone" label="Prospects" value={String(pipeline.prospect || 0)} sub="ready to reach out" formula="Latest collab status = prospect." />
-              <StatCard tone="amber" label="Negotiating" value={String(pipeline.negotiating || 0)} sub="back & forth on terms" formula="Latest collab status = negotiating." />
-              <StatCard tone="blue" label="Shipped" value={String(pipeline.shipped || 0)} sub="awaiting post" formula="Latest collab status = shipped." />
-              <StatCard tone="emerald" label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalCollabs || 0} total collabs`} formula="SUM total_gift_value across shipped+posted." />
-              <div className="hidden sm:block"><StatCard tone="purple" label="Posts (Month)" value={String(stats?.thisMonth.posts || 0)} sub="content posted this month" formula="COUNT collabs with content_posted_date in current month." /></div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <StatCard tone="amber" label="Needs Action" value={String((pipeline.negotiating || 0) + (pipeline.approved || 0))} sub="negotiating + approved" formula="Collabs Ryan needs to review or move forward." />
+              <StatCard tone="sky" label="Active Pipeline" value={String(stats?.activeCollabs || 0)} sub="prospect → approved" formula="All non-posted, non-passed, non-watchlist collabs." />
+              <StatCard tone="blue" label="Shipped" value={String(pipeline.shipped || 0)} sub="awaiting content" formula="Shipped, waiting for content to be posted." />
+              <StatCard tone="stone" label="Total Collabs" value={String(stats?.allTime.totalCollabs || 0)} sub="all time" formula="Every collab ever created." />
             </div>
           </section>
         )}
@@ -479,6 +481,22 @@ function NewInfluencerForm({ role, onClose, onCreated }: { role: Role; onClose: 
   const [scrapeState, setScrapeState] = useState<'idle' | 'loading' | 'manual' | 'done' | 'fail'>('idle');
   const [saveAsWatchlist, setSaveAsWatchlist] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [formProducts, setFormProducts] = useState<Product[]>([]);
+  const [duplicateOf, setDuplicateOf] = useState<{ id: string; collab_count: number } | null>(null);
+
+  // Debounced duplicate check
+  useEffect(() => {
+    const clean = handle.replace(/^@/, '').trim();
+    if (!clean) { setDuplicateOf(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/influencers?search=${encodeURIComponent(clean)}`).then(r => r.json());
+        const found = (r.influencers || []).find((i: { instagram_handle: string }) => i.instagram_handle.toLowerCase() === `@${clean.toLowerCase()}`);
+        setDuplicateOf(found ? { id: found.id, collab_count: found.collab_count } : null);
+      } catch {}
+    }, 400);
+    return () => clearTimeout(t);
+  }, [handle]);
 
   const fNum = parseInt(followers) || 0;
   const eNum = parseFloat(engagement) || 0;
@@ -518,6 +536,7 @@ function NewInfluencerForm({ role, onClose, onCreated }: { role: Role; onClose: 
         content_types: content,
         bio_notes: notes.trim() || null,
         dm_context: askedFor.trim() || null,
+        products_to_send: formProducts,
         scraped_data: scraped,
         scraped_at: scraped ? new Date().toISOString() : null,
         full_name: scraped?.fullName,
@@ -597,6 +616,16 @@ function NewInfluencerForm({ role, onClose, onCreated }: { role: Role; onClose: 
             </div>
           </Field>
 
+          {duplicateOf && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs text-amber-800">
+              ⚠ <b>{handle.startsWith('@') ? handle : `@${handle}`}</b> already exists with {duplicateOf.collab_count} collab{duplicateOf.collab_count !== 1 ? 's' : ''}. Open their profile and click <b>+ Start New Collab</b> instead — that&apos;s how repeat collabs work.
+            </div>
+          )}
+
+          <Field label="Products (optional)">
+            <ProductPicker products={formProducts} setProducts={setFormProducts} />
+          </Field>
+
           <Field label="Why this influencer?">
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] resize-y" />
           </Field>
@@ -633,6 +662,7 @@ function InfluencerPanel({ role, influencer, onClose, onRefresh, flash }: {
   const [newNote, setNewNote] = useState('');
   const [noteName, setNoteName] = useState(role === 'admin' ? 'Ryan' : '');
   const [editAddress, setEditAddress] = useState(false);
+  const [editProfile, setEditProfile] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -709,16 +739,24 @@ function InfluencerPanel({ role, influencer, onClose, onRefresh, flash }: {
                 <span className={`font-semibold ${engagementTone(influencer.engagement_rate)}`}>{influencer.engagement_rate !== null ? `${influencer.engagement_rate}%` : '—'}</span>
                 {(influencer.niche_tags || []).length > 0 && <span className="text-[var(--muted-foreground)]"> · {(influencer.niche_tags || []).join(', ')}</span>}
               </div>
-              {influencer.email && <div className="text-xs text-sky-600 mt-0.5">{influencer.email}</div>}
+              {influencer.email && <a href={`mailto:${influencer.email}`} className="text-xs text-sky-600 hover:underline mt-0.5 inline-block">{influencer.email}</a>}
               {isAdmin && (
-                <button onClick={rescrape} disabled={busy} className="text-[10px] text-sky-600 hover:underline mt-1">↻ Refresh stats</button>
+                <div className="flex gap-3 mt-1">
+                  <button onClick={rescrape} disabled={busy} className="text-[10px] text-sky-600 hover:underline">↻ Refresh stats</button>
+                  <button onClick={() => setEditProfile(v => !v)} className="text-[10px] text-sky-600 hover:underline">{editProfile ? 'Done editing' : '✎ Edit profile'}</button>
+                </div>
               )}
             </div>
             <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">✕</button>
           </div>
 
+          {/* Profile editor */}
+          {editProfile && (
+            <ProfileEditor influencer={influencer} onSaved={() => { setEditProfile(false); flash('Profile saved'); onRefresh(); }} />
+          )}
+
           {/* Bio */}
-          {influencer.bio && (
+          {!editProfile && influencer.bio && (
             <div className="bg-[var(--muted)]/40 rounded-xl p-3 text-xs text-[var(--muted-foreground)] whitespace-pre-wrap italic">{influencer.bio}</div>
           )}
 
@@ -823,17 +861,85 @@ function InfluencerPanel({ role, influencer, onClose, onRefresh, flash }: {
 
 function Panel({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      <div className="hidden md:block absolute top-0 right-0 h-full w-[560px] bg-[var(--card)] shadow-2xl overflow-y-auto animate-slide-right">{children}</div>
-      <div className="md:hidden absolute bottom-0 left-0 right-0 bg-[var(--card)] rounded-t-2xl max-h-[92vh] overflow-y-auto shadow-2xl animate-slide-up">
-        <div className="text-center pt-3 pb-1"><div className="w-9 h-1 bg-[var(--border)] rounded mx-auto" /></div>
-        {children}
-      </div>
-    </>
+    <div className="absolute bottom-0 left-0 right-0 max-h-[92vh] rounded-t-2xl overflow-y-auto bg-[var(--card)] shadow-2xl animate-slide-up md:bottom-auto md:right-0 md:top-0 md:left-auto md:w-[560px] md:h-full md:max-h-none md:rounded-none md:animate-slide-right">
+      <div className="md:hidden text-center pt-3 pb-1"><div className="w-9 h-1 bg-[var(--border)] rounded mx-auto" /></div>
+      {children}
+    </div>
   );
 }
 
 /* ─── Address Editor ─── */
+
+function ProfileEditor({ influencer, onSaved }: { influencer: Influencer; onSaved: () => void }) {
+  const [fullName, setFullName] = useState(influencer.full_name || '');
+  const [email, setEmail] = useState(influencer.email || '');
+  const [niches, setNiches] = useState<string[]>(influencer.niche_tags || []);
+  const [content, setContent] = useState<string[]>(influencer.content_types || []);
+  const [bio, setBio] = useState(influencer.bio || '');
+  const [personNotes, setPersonNotes] = useState(influencer.person_notes || '');
+  const [followers, setFollowers] = useState(influencer.follower_count?.toString() || '');
+  const [engagement, setEngagement] = useState(influencer.engagement_rate?.toString() || '');
+  const [saving, setSaving] = useState(false);
+
+  const toggle = (arr: string[], set: (v: string[]) => void, v: string) => {
+    set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    await fetch('/api/influencers', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: influencer.id, action: 'update_profile',
+        full_name: fullName || null, email: email || null,
+        niche_tags: niches, content_types: content,
+        bio: bio || null, person_notes: personNotes || null,
+        follower_count: followers ? parseInt(followers) : null,
+        engagement_rate: engagement ? parseFloat(engagement) : null,
+      }),
+    });
+    setSaving(false); onSaved();
+  };
+
+  return (
+    <section className="border-2 border-sky-200 bg-sky-50/30 rounded-xl p-4 space-y-3">
+      <div className="text-[11px] uppercase tracking-wider font-semibold text-sky-700">Edit Profile</div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Full Name"><input value={fullName} onChange={e => setFullName(e.target.value)} className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+        <Field label="Email"><input value={email} onChange={e => setEmail(e.target.value)} className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Followers"><input type="number" value={followers} onChange={e => setFollowers(e.target.value)} className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+        <Field label="Engagement %"><input type="number" step="0.1" value={engagement} onChange={e => setEngagement(e.target.value)} className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+      </div>
+      <Field label="Niches">
+        <div className="flex flex-wrap gap-2">
+          {NICHES.map(n => (
+            <button key={n} type="button" onClick={() => toggle(niches, setNiches, n)}
+              className={`text-xs px-3 py-1.5 rounded-lg border ${niches.includes(n) ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]' : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)]'}`}>{n}</button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Content Types">
+        <div className="flex flex-wrap gap-2">
+          {CONTENT_TYPES.map(c => (
+            <button key={c} type="button" onClick={() => toggle(content, setContent, c)}
+              className={`text-xs px-3 py-1.5 rounded-lg border ${content.includes(c) ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]' : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)]'}`}>{c}</button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Bio (auto from scrape)">
+        <textarea value={bio} onChange={e => setBio(e.target.value)} rows={2} className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm resize-y" />
+      </Field>
+      <Field label="Person notes (your private notes)">
+        <textarea value={personNotes} onChange={e => setPersonNotes(e.target.value)} rows={3} className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm resize-y" />
+      </Field>
+      <button onClick={save} disabled={saving} className="w-full py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-sm font-semibold disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save Profile'}
+      </button>
+    </section>
+  );
+}
 
 function AddressEditor({ influencer, onSaved }: { influencer: Influencer; onSaved: () => void }) {
   const [name, setName] = useState(influencer.shipping_name || '');
@@ -891,6 +997,18 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
   const [showLogContent, setShowLogContent] = useState(false);
   const [contentUrl, setContentUrl] = useState('');
   const [contentDate, setContentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [editProducts, setEditProducts] = useState(false);
+  const [draftProducts, setDraftProducts] = useState<Product[]>(collab.products || []);
+  const [editDeal, setEditDeal] = useState(false);
+  const [dealDraft, setDealDraft] = useState({
+    deal_type: collab.deal_type || '',
+    payment_amount: String(collab.payment_amount || 0),
+    payment_method: collab.payment_method || '',
+    deliverables: collab.deliverables || '',
+    discount_code: collab.discount_code || '',
+    expected_post_date: collab.expected_post_date || '',
+    special_instructions: collab.special_instructions || '',
+  });
 
   const act = async (action: string, body: Record<string, unknown> = {}) => {
     setBusy(true);
@@ -904,8 +1022,12 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
   };
 
   const createDraft = async () => {
+    if ((collab.products || []).length === 0) {
+      flash('Add products to this collab first');
+      return;
+    }
     if (!influencer.shipping_address1 && !collab.shipping_override?.address1) {
-      flash('Add shipping address first');
+      flash('Add shipping address to this influencer first');
       return;
     }
     setBusy(true);
@@ -935,10 +1057,13 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
             <StatusBadge status={s} />
           </div>
           <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
-            {collab.deal_type ? `${collab.deal_type.replace('_', ' ')} · ` : ''}
-            {products.length > 0 ? `${products.length} item${products.length !== 1 ? 's' : ''} · ${fmtMoney(giftValue)} ` : ''}
-            {collab.payment_amount > 0 ? `+ $${collab.payment_amount} payment ` : ''}
-            · {fmtDate(collab.status_changed_at)}
+            {[
+              formatDealType(collab.deal_type),
+              collab.payment_amount > 0 ? `$${collab.payment_amount}` : null,
+              products.length > 0 ? `${products.length} item${products.length !== 1 ? 's' : ''} · ${fmtMoney(giftValue)}` : null,
+              collab.discount_code,
+              fmtDateShort(collab.status_changed_at),
+            ].filter(Boolean).join(' · ')}
           </div>
           {collab.shopify_order_name && <div className="text-[11px] text-emerald-600 mt-0.5">✓ {collab.shopify_order_name}</div>}
         </div>
@@ -1005,48 +1130,121 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
           {/* DM context */}
           {collab.dm_context && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-1">DM Context</div>
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-1">💬 DM Context</div>
               <div className="text-xs text-[var(--foreground)] whitespace-pre-wrap">{collab.dm_context}</div>
             </div>
           )}
 
-          {/* Intern notes */}
-          {collab.intern_notes && (
+          {/* Intern notes — only show if distinct from DM context */}
+          {collab.intern_notes && collab.intern_notes !== collab.dm_context && !(collab.dm_context || '').includes(collab.intern_notes || '') && (
             <div>
               <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-1">Intern Notes</div>
               <div className="text-xs whitespace-pre-wrap">{collab.intern_notes}</div>
             </div>
           )}
 
-          {/* Deal terms */}
-          {(collab.deal_type || collab.deliverables || collab.discount_code) && (
-            <div className="text-xs space-y-1">
+          {/* Deal terms — editable */}
+          <div className="text-xs space-y-1">
+            <div className="flex items-center justify-between mb-1">
               <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">Deal</div>
-              {collab.deal_type && <div><span className="text-[var(--muted-foreground)]">Type:</span> {collab.deal_type}</div>}
-              {collab.payment_amount > 0 && <div><span className="text-[var(--muted-foreground)]">Payment:</span> ${collab.payment_amount}</div>}
-              {collab.deliverables && <div><span className="text-[var(--muted-foreground)]">Deliverables:</span> {collab.deliverables}</div>}
-              {collab.expected_post_date && <div><span className="text-[var(--muted-foreground)]">Expected post:</span> {fmtDate(collab.expected_post_date)}</div>}
-              {collab.discount_code && <div><span className="text-[var(--muted-foreground)]">Code:</span> {collab.discount_code}</div>}
+              {isAdmin && (
+                <button onClick={() => setEditDeal(v => !v)} className="text-[10px] text-sky-600 hover:underline">{editDeal ? 'Cancel' : '✎ Edit'}</button>
+              )}
             </div>
-          )}
-
-          {/* Products */}
-          {products.length > 0 && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-1">Products ({products.length})</div>
-              <div className="space-y-1.5">
-                {products.map((p, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs p-2 bg-[var(--muted)]/40 rounded-lg">
-                    {p.image && <img src={p.image} alt="" className="w-8 h-8 rounded object-cover" />}
-                    <div className="flex-1 min-w-0 truncate">{p.title}</div>
-                    <div className="text-[var(--muted-foreground)]">×{p.quantity || 1}</div>
-                    <div>${(p.price || 0).toFixed(0)}</div>
-                  </div>
-                ))}
-                <div className="text-[11px] text-right text-[var(--muted-foreground)]">Total: <b className="text-[var(--foreground)]">{fmtMoney(giftValue)}</b></div>
+            {!editDeal ? (
+              !collab.deal_type && !collab.deliverables && !collab.discount_code ? (
+                <div className="text-[var(--muted-foreground)] italic">Deal terms not set yet</div>
+              ) : (
+                <div className="space-y-0.5">
+                  {collab.deal_type && <div><span className="text-[var(--muted-foreground)]">Type:</span> {formatDealType(collab.deal_type)}</div>}
+                  {collab.payment_amount > 0 && <div><span className="text-[var(--muted-foreground)]">Payment:</span> ${collab.payment_amount}{collab.payment_method ? ` via ${collab.payment_method}` : ''}</div>}
+                  {collab.deliverables && <div><span className="text-[var(--muted-foreground)]">Deliverables:</span> {collab.deliverables}</div>}
+                  {collab.expected_post_date && <div><span className="text-[var(--muted-foreground)]">Expected post:</span> {fmtDate(collab.expected_post_date)}</div>}
+                  {collab.discount_code && <div><span className="text-[var(--muted-foreground)]">Code:</span> {collab.discount_code}</div>}
+                  {collab.special_instructions && <div><span className="text-[var(--muted-foreground)]">Notes:</span> {collab.special_instructions}</div>}
+                </div>
+              )
+            ) : (
+              <div className="space-y-2 mt-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={dealDraft.deal_type} onChange={e => setDealDraft({ ...dealDraft, deal_type: e.target.value })}
+                    className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs">
+                    <option value="">Type…</option>
+                    <option value="gifted_only">Gifted</option>
+                    <option value="gifted_paid">Gifted + Paid</option>
+                    <option value="paid_only">Paid</option>
+                    <option value="affiliate">Affiliate</option>
+                  </select>
+                  <input type="number" value={dealDraft.payment_amount} onChange={e => setDealDraft({ ...dealDraft, payment_amount: e.target.value })}
+                    placeholder="Payment $" className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                </div>
+                <select value={dealDraft.payment_method} onChange={e => setDealDraft({ ...dealDraft, payment_method: e.target.value })}
+                  className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs">
+                  <option value="">Payment method…</option>
+                  <option>PayPal</option><option>Zelle</option><option>Venmo</option><option>Store Credit</option><option>N/A</option>
+                </select>
+                <textarea value={dealDraft.deliverables} onChange={e => setDealDraft({ ...dealDraft, deliverables: e.target.value })}
+                  rows={2} placeholder="Deliverables" className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={dealDraft.expected_post_date} onChange={e => setDealDraft({ ...dealDraft, expected_post_date: e.target.value })}
+                    className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                  <input value={dealDraft.discount_code} onChange={e => setDealDraft({ ...dealDraft, discount_code: e.target.value })}
+                    placeholder="Discount code" className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                </div>
+                <textarea value={dealDraft.special_instructions} onChange={e => setDealDraft({ ...dealDraft, special_instructions: e.target.value })}
+                  rows={2} placeholder="Special instructions" className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                <button onClick={async () => {
+                  await act('update_fields', {
+                    deal_type: dealDraft.deal_type || null,
+                    payment_amount: parseFloat(dealDraft.payment_amount) || 0,
+                    payment_method: dealDraft.payment_method || null,
+                    deliverables: dealDraft.deliverables || null,
+                    expected_post_date: dealDraft.expected_post_date || null,
+                    discount_code: dealDraft.discount_code || null,
+                    special_instructions: dealDraft.special_instructions || null,
+                  });
+                  flash('Deal saved'); setEditDeal(false);
+                }} disabled={busy} className="w-full py-2 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-xs font-semibold">Save Deal</button>
               </div>
+            )}
+          </div>
+
+          {/* Products — always shown, editable */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">Products ({products.length})</div>
+              {isAdmin && !editProducts && <button onClick={() => { setDraftProducts(products); setEditProducts(true); }} className="text-[10px] text-sky-600 hover:underline">{products.length > 0 ? '✎ Edit' : '+ Add'}</button>}
             </div>
-          )}
+            {!editProducts ? (
+              products.length === 0 ? (
+                <div className="text-xs text-[var(--muted-foreground)] italic">No products yet — add some before creating a Shopify order</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {products.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs p-2 bg-[var(--muted)]/40 rounded-lg">
+                      {p.image && <img src={p.image} alt="" className="w-8 h-8 rounded object-cover" />}
+                      <div className="flex-1 min-w-0 truncate">{p.title}</div>
+                      <div className="text-[var(--muted-foreground)]">×{p.quantity || 1}</div>
+                      <div>${(p.price || 0).toFixed(0)}</div>
+                    </div>
+                  ))}
+                  <div className="text-[11px] text-right text-[var(--muted-foreground)]">Total: <b className="text-[var(--foreground)]">{fmtMoney(giftValue)}</b></div>
+                </div>
+              )
+            ) : (
+              <div className="space-y-2">
+                <ProductPicker products={draftProducts} setProducts={setDraftProducts} />
+                <div className="flex gap-2">
+                  <button onClick={async () => {
+                    const total = draftProducts.reduce((s, p) => s + (Number(p.price) || 0) * (Number(p.quantity) || 1), 0);
+                    await act('update_fields', { products: draftProducts, total_gift_value: total });
+                    flash('Products saved'); setEditProducts(false);
+                  }} disabled={busy} className="flex-1 py-2 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-xs font-semibold">Save Products</button>
+                  <button onClick={() => { setEditProducts(false); setDraftProducts(products); }} className="px-3 py-2 text-xs text-[var(--muted-foreground)]">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Shopify */}
           {collab.shopify_order_name && (
@@ -1079,5 +1277,94 @@ function ActionBtn({ onClick, color, busy, children }: { onClick: () => void; co
       className={`py-2.5 px-3 rounded-xl text-xs font-semibold text-white disabled:opacity-50 ${color}`}>
       {children}
     </button>
+  );
+}
+
+/* ─── Product Picker (reusable) ─── */
+
+type ShopifyVariant = { id: string; title: string; sku: string | null; price: number; size: string; inStock: boolean; inventory: number | null };
+type ShopifyProduct = { id: string; title: string; handle: string; image: string | null; variants: ShopifyVariant[] };
+
+export function ProductPicker({ products, setProducts }: { products: Product[]; setProducts: (p: Product[]) => void }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<ShopifyProduct[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!q.trim()) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await fetch(`/api/influencers/products?search=${encodeURIComponent(q)}`).then(r => r.json());
+        setResults(r.products || []);
+      } finally { setSearching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const addVariant = (p: ShopifyProduct, v: ShopifyVariant) => {
+    setProducts([...products, {
+      title: `${p.title} — ${v.size}`,
+      variantId: v.id,
+      price: v.price,
+      quantity: 1,
+      sku: v.sku || undefined,
+      image: p.image || undefined,
+    }]);
+    setQ(''); setResults([]); setExpanded(null);
+  };
+
+  const total = products.reduce((s, p) => s + (Number(p.price) || 0) * (Number(p.quantity) || 1), 0);
+
+  return (
+    <div className="space-y-2">
+      {products.length > 0 && (
+        <div className="space-y-1.5">
+          {products.map((p, i) => (
+            <div key={i} className="flex items-center gap-2 p-2 bg-[var(--muted)]/50 rounded-lg">
+              {p.image ? <img src={p.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" /> : <div className="w-10 h-10 rounded-lg bg-[var(--muted)] flex-shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-[var(--foreground)] truncate">{p.title}</div>
+                <div className="text-[10px] text-[var(--muted-foreground)]">${(p.price || 0).toFixed(2)}{p.sku ? ` · SKU ${p.sku}` : ''}</div>
+              </div>
+              <input type="number" min="1" value={p.quantity || 1}
+                onChange={e => { const c = [...products]; c[i] = { ...c[i], quantity: parseInt(e.target.value) || 1 }; setProducts(c); }}
+                className="w-14 p-1.5 rounded border border-[var(--border)] bg-[var(--card)] text-sm text-center" />
+              <button onClick={() => setProducts(products.filter((_, j) => j !== i))} className="text-red-500 text-lg px-1">×</button>
+            </div>
+          ))}
+          <div className="text-[11px] text-right text-[var(--muted-foreground)]">Total: <b className="text-[var(--foreground)]">${total.toFixed(0)}</b></div>
+        </div>
+      )}
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search active Shopify products by title…"
+        className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+      {searching && <div className="text-xs text-[var(--muted-foreground)] italic">Searching…</div>}
+      {results.length > 0 && (
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden max-h-80 overflow-y-auto divide-y divide-[var(--border)]">
+          {results.map(p => (
+            <div key={p.id}>
+              <button onClick={() => setExpanded(expanded === p.id ? null : p.id)} className="w-full flex items-center gap-3 p-2.5 hover:bg-[var(--accent)]/40 text-left">
+                {p.image ? <img src={p.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" /> : <div className="w-10 h-10 rounded-lg bg-[var(--muted)] flex-shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-[var(--foreground)] truncate">{p.title}</div>
+                  <div className="text-[10px] text-[var(--muted-foreground)]">{p.variants.length} in-stock size{p.variants.length !== 1 ? 's' : ''}</div>
+                </div>
+                <span className="text-xs text-[var(--muted-foreground)]">{expanded === p.id ? '▾' : '▸'}</span>
+              </button>
+              {expanded === p.id && (
+                <div className="pl-14 pr-3 pb-3 flex flex-wrap gap-1.5">
+                  {p.variants.map(v => (
+                    <button key={v.id} onClick={() => addVariant(p, v)} className="text-[11px] px-2.5 py-1.5 rounded-lg border bg-[var(--card)] border-[var(--border)] hover:border-[var(--ring)] hover:bg-[var(--accent)]">
+                      {v.size} · ${v.price.toFixed(0)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

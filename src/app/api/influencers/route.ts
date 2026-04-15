@@ -40,17 +40,23 @@ export async function GET(req: NextRequest) {
     collabsByPerson.set(c.influencer_id, arr);
   }
 
-  // 3) build rollup
+  // Status priority — most advanced active state wins for the rollup
+  const STATUS_RANK: Record<string, number> = {
+    shipped: 100, approved: 90, negotiating: 80, outreach: 70, prospect: 60,
+    posted: 50, passed: 10, watchlist: 5,
+  };
   const rows = (people || []).map(p => {
     const personCollabs = collabsByPerson.get(p.id) || [];
     const latest = personCollabs[0] || null;
-    const activeCollab = personCollabs.find(c => !['posted', 'passed'].includes(c.status)) || latest;
+    const mostAdvanced = personCollabs.length > 0
+      ? [...personCollabs].sort((a, b) => (STATUS_RANK[b.status] || 0) - (STATUS_RANK[a.status] || 0))[0]
+      : null;
     return {
       ...p,
       collab_count: personCollabs.length,
       latest_collab: latest,
-      active_collab: activeCollab,
-      latest_status: activeCollab?.status || 'prospect',
+      active_collab: mostAdvanced,
+      latest_status: mostAdvanced?.status || 'prospect',
       collabs: personCollabs,
     };
   });
