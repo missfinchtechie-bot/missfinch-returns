@@ -6,7 +6,7 @@ export const maxDuration = 300;
 function authorized(req: Request): boolean {
   if (req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`) return true;
   const cookie = req.headers.get('cookie') || '';
-  return cookie.includes('mf_auth=authenticated');
+  return /mf_auth=(authenticated|admin)(;|$)/.test(cookie);
 }
 
 export async function GET(req: Request) {

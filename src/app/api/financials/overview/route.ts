@@ -3,7 +3,7 @@ import { getServiceClient } from '@/lib/supabase';
 
 function authorized(req: Request): boolean {
   const cookie = req.headers.get('cookie') || '';
-  return cookie.includes('mf_auth=authenticated');
+  return /mf_auth=(authenticated|admin)(;|$)/.test(cookie);
 }
 
 type OrderRow = {

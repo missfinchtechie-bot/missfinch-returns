@@ -14,7 +14,7 @@ type Return = {
   label_url: string | null; customer_shipped: string | null; label_sent: string | null;
 };
 
-type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; lost: number; pendingRefund: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number; backlogOwed: number; totalOwed: number; processedThisMonth: number; processedThisMonthValue: number };
+type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; lost: number; pendingRefund: number; pendingRefundGross: number; pendingRefundNet: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number; backlogOwed: number; totalOwed: number; processedThisMonth: number; processedThisMonthValue: number };
 
 const TABS = [
   { key: 'all', label: 'All', icon: '☰' },
@@ -87,7 +87,7 @@ export default function AdminDashboard() {
   const [pwErr, setPwErr] = useState('');
   const [tab, setTab] = useState('inbox');
   const [returns, setReturns] = useState<Return[]>([]);
-  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0, lost: 0, pendingRefund: 0, pendingCredit: 0, inTransitValue: 0, processedThisWeek: 0, backlogOwed: 0, totalOwed: 0, processedThisMonth: 0, processedThisMonthValue: 0 });
+  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0, lost: 0, pendingRefund: 0, pendingRefundGross: 0, pendingRefundNet: 0, pendingCredit: 0, inTransitValue: 0, processedThisWeek: 0, backlogOwed: 0, totalOwed: 0, processedThisMonth: 0, processedThisMonthValue: 0 });
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Return | null>(null);
   const [loading, setLoading] = useState(true);
@@ -315,8 +315,8 @@ export default function AdminDashboard() {
             </div>
             <div className="bg-amber-50/80 border border-amber-200/60 rounded-xl px-4 py-3.5 shadow-sm">
               <div className="text-[10px] text-amber-600 uppercase tracking-wider font-semibold">Pending Refunds</div>
-              <div className="text-xl font-bold text-amber-800 font-heading mt-0.5">${stats.pendingRefund.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
-              <div className="text-[11px] text-amber-600/80 mt-0.5">{stats.inbox} inbox waiting</div>
+              <div className="text-xl font-bold text-amber-800 font-heading mt-0.5">${(stats.pendingRefundGross || stats.pendingRefund).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+              <div className="text-[11px] text-amber-600/80 mt-0.5">net ${stats.pendingRefundNet.toLocaleString('en-US', { maximumFractionDigits: 0 })} after 5% fee</div>
             </div>
             <div className="bg-emerald-50/80 border border-emerald-200/60 rounded-xl px-4 py-3.5 shadow-sm">
               <div className="text-[10px] text-emerald-600 uppercase tracking-wider font-semibold">Pending Credits</div>
@@ -402,7 +402,7 @@ export default function AdminDashboard() {
                   <th onClick={() => toggleSort('order_number')} className="pl-4 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-left w-[90px]">Order{sort.key === 'order_number' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th onClick={() => toggleSort('customer_name')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-left">Customer{sort.key === 'customer_name' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th onClick={() => toggleSort('item_count')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-center w-[50px]">Qty{sort.key === 'item_count' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
-                  <th onClick={() => toggleSort('subtotal')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-right w-[100px]">Return ${sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
+                  <th onClick={() => toggleSort('subtotal')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-right w-[100px]">Value{sort.key === 'subtotal' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th onClick={() => toggleSort('type')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-center w-[80px]">Type{sort.key === 'type' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th onClick={() => toggleSort('status')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-center w-[100px]">{tab === 'shipping' ? 'Last Scan' : 'Status'}{sort.key === 'status' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
                   <th onClick={() => toggleSort('return_requested')} className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] select-none text-left w-[110px]">{tab === 'shipping' ? 'Shipped' : 'Requested'}{sort.key === 'return_requested' && <span className="ml-0.5">{sort.dir === 'asc' ? '↑' : '↓'}</span>}</th>
@@ -434,6 +434,12 @@ export default function AdminDashboard() {
                         <div className={`text-sm font-semibold ${r.subtotal >= 300 ? 'text-amber-700' : 'text-[var(--foreground)]'}`}>
                           {r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}
                         </div>
+                        {r.subtotal > 0 && r.type === 'refund' && (
+                          <div className="text-[10px] text-emerald-600">net ${(r.subtotal * 0.95).toFixed(2)}</div>
+                        )}
+                        {r.subtotal > 0 && r.type !== 'refund' && (
+                          <div className="text-[10px] text-emerald-600">no fee</div>
+                        )}
                       </td>
                       <td className="px-2 py-3 text-center"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg ${tb.bg}`}>{tb.label}</span></td>
                       <td className="px-2 py-3 text-center"><span className={`text-[10px] font-medium px-2 py-0.5 rounded-lg ${si.cls}`}>{si.text}</span></td>
@@ -483,8 +489,13 @@ export default function AdminDashboard() {
                       <div className="font-semibold text-[var(--foreground)]">{r.customer_name}</div>
                       <div className="text-sm text-[var(--muted-foreground)]">{r.order_number} · {r.item_count} item{r.item_count > 1 ? 's' : ''}</div>
                     </div>
-                    <div className={`text-base font-bold ${r.subtotal >= 300 ? 'text-amber-700' : 'text-[var(--foreground)]'}`}>
-                      {r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}
+                    <div className="text-right">
+                      <div className={`text-base font-bold ${r.subtotal >= 300 ? 'text-amber-700' : 'text-[var(--foreground)]'}`}>
+                        {r.subtotal > 0 ? `$${r.subtotal.toFixed(2)}` : '—'}
+                      </div>
+                      {r.subtotal > 0 && r.type === 'refund' && (
+                        <div className="text-[10px] text-emerald-600">net ${(r.subtotal * 0.95).toFixed(2)}</div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">

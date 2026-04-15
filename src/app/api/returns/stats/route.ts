@@ -27,10 +27,11 @@ export async function GET(req: NextRequest) {
   const { data: inboxReturns } = await withRange(
     supabase.from('returns').select('subtotal, type').eq('status', 'inbox')
   );
-  // Apply 5% restocking fee on refunds; credits/exchanges are full subtotal
-  const pendingRefund = (inboxReturns || [])
+  const pendingRefundGross = (inboxReturns || [])
     .filter(r => r.type === 'refund')
-    .reduce((s, r) => s + ((r.subtotal || 0) * 0.95), 0);
+    .reduce((s, r) => s + (r.subtotal || 0), 0);
+  const pendingRefundNet = pendingRefundGross * 0.95;
+  const pendingRefund = pendingRefundNet; // back-compat: Total Owed uses net
   const pendingCredit = (inboxReturns || [])
     .filter(r => r.type !== 'refund')
     .reduce((s, r) => s + (r.subtotal || 0), 0);
@@ -69,6 +70,8 @@ export async function GET(req: NextRequest) {
     all: all.count || 0,
     lost: lost.count || 0,
     pendingRefund,
+    pendingRefundGross,
+    pendingRefundNet,
     pendingCredit,
     inTransitValue,
     processedThisWeek: processedThisWeek || 0,

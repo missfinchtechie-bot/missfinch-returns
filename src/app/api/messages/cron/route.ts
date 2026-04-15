@@ -7,7 +7,7 @@ function verifyCron(req: Request): boolean {
   // Accept cron secret header OR admin auth cookie
   if (req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`) return true;
   const cookie = req.headers.get('cookie') || '';
-  if (cookie.includes('mf_auth=authenticated')) return true;
+  if (/mf_auth=(authenticated|admin)(;|$)/.test(cookie)) return true;
   return false;
 }
 
