@@ -213,6 +213,7 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
               <span className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-2 sm:px-3 py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md">Returns</span>
               <a href="/admin/messages" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Messages</a>
+              <a href="/admin/financials" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-[11px] sm:text-xs tracking-wider uppercase px-2 sm:px-3 py-1.5 rounded-md hover:bg-[var(--accent)] transition-colors">Financials</a>
             </div>
           </div>
           <div className="relative flex-1 max-w-xs sm:max-w-sm">

@@ -7,6 +7,10 @@
     {
       "path": "/api/messages/cron",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/financials/cron",
+      "schedule": "0 8 * * *"
     }
   ]
 }
