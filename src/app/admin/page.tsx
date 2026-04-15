@@ -844,22 +844,45 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       </div>
 
       {/* ── Actions ── */}
-      {(r.status === 'inbox' || r.status === 'old') && !showReject && (
-        <div className="flex flex-col gap-2.5 mb-5">
-          {r.type === 'credit' || r.type === 'exchange' ? (
-            <button onClick={() => doAction(r.id, 'credit', `Issue $${(localSubtotal || 0).toFixed(2)} store credit to ${r.customer_name}?`, localSubtotal, undefined, r.imported_from === 'redo')}
-              className="w-full py-4 bg-emerald-600 text-white rounded-xl text-base font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors shadow-sm">
-              Issue Credit{localSubtotal > 0 ? ` · $${localSubtotal.toFixed(2)}` : ''}
-            </button>
-          ) : (
-            <button onClick={() => doAction(r.id, 'refund', `Refund $${(localSubtotal || 0).toFixed(2)} to ${r.customer_name}?`, localSubtotal, undefined, r.imported_from === 'redo')}
-              className="w-full py-4 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-base font-semibold hover:opacity-90 active:opacity-80 transition-all shadow-sm">
-              Approve Refund{localSubtotal > 0 ? ` · $${localSubtotal.toFixed(2)}` : ''}
-            </button>
-          )}
-          <button onClick={() => setShowReject(true)} className="w-full py-3 bg-[var(--card)] text-red-500 border border-red-200/80 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors">Reject</button>
-        </div>
-      )}
+      {(r.status === 'inbox' || r.status === 'old') && !showReject && (() => {
+        const isCredit = r.type === 'credit' || r.type === 'exchange';
+        const feeAmount = !isCredit ? Math.round((localSubtotal || 0) * 0.05 * 100) / 100 : 0;
+        const netRefund = Math.round(((localSubtotal || 0) - feeAmount) * 100) / 100;
+        const bonusAmount = isCredit ? Math.min(Math.round((localSubtotal || 0) * 0.05 * 100) / 100, 25) : 0;
+        const creditTotal = Math.round(((localSubtotal || 0) + bonusAmount) * 100) / 100;
+
+        return (
+          <div className="flex flex-col gap-2.5 mb-5">
+            {/* Fee/bonus breakdown */}
+            <div className="bg-[var(--muted)] rounded-xl p-3 text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Return value</span><span className="text-[var(--foreground)]">${(localSubtotal || 0).toFixed(2)}</span></div>
+              {!isCredit && feeAmount > 0 && (
+                <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Restocking fee (5%)</span><span className="text-red-500">-${feeAmount.toFixed(2)}</span></div>
+              )}
+              {isCredit && bonusAmount > 0 && r.paid_with === 'card' && (
+                <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Credit bonus (5%)</span><span className="text-emerald-600">+${bonusAmount.toFixed(2)}</span></div>
+              )}
+              <div className="flex justify-between pt-1 border-t border-[var(--border)]">
+                <span className="text-[var(--foreground)] font-semibold">{isCredit ? 'Credit amount' : 'Refund amount'}</span>
+                <span className="text-[var(--foreground)] font-bold">${isCredit ? (r.paid_with === 'card' ? creditTotal : (localSubtotal || 0)).toFixed(2) : netRefund.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {isCredit ? (
+              <button onClick={() => doAction(r.id, 'credit', `Issue $${(r.paid_with === 'card' ? creditTotal : localSubtotal || 0).toFixed(2)} store credit to ${r.customer_name}?`, r.paid_with === 'card' ? creditTotal : localSubtotal, undefined, r.imported_from === 'redo')}
+                className="w-full py-4 bg-emerald-600 text-white rounded-xl text-base font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors shadow-sm">
+                Issue Credit · ${(r.paid_with === 'card' ? creditTotal : localSubtotal || 0).toFixed(2)}
+              </button>
+            ) : (
+              <button onClick={() => doAction(r.id, 'refund', `Refund $${netRefund.toFixed(2)} to ${r.customer_name}? ($${(localSubtotal || 0).toFixed(2)} − $${feeAmount.toFixed(2)} fee)`, netRefund, undefined, r.imported_from === 'redo')}
+                className="w-full py-4 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-base font-semibold hover:opacity-90 active:opacity-80 transition-all shadow-sm">
+                Approve Refund · ${netRefund.toFixed(2)}
+              </button>
+            )}
+            <button onClick={() => setShowReject(true)} className="w-full py-3 bg-[var(--card)] text-red-500 border border-red-200/80 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors">Reject</button>
+          </div>
+        );
+      })()}
 
       {showReject && (
         <div className="mb-5">

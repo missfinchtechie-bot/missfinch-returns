@@ -100,12 +100,18 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Update return record
+    // Update return record — amount passed from frontend is already the final amount (with bonus if applicable)
+    const feeAmount = 0; // credits are free
+    const bonusAmount = refundAmount > returnData.subtotal ? Math.round((refundAmount - returnData.subtotal) * 100) / 100 : 0;
+
     const { error } = await supabase
       .from('returns')
       .update({
         status: 'done', outcome: 'credit',
-        final_amount: refundAmount, processed_at: now, updated_at: now,
+        final_amount: refundAmount, 
+        total_fees: feeAmount,
+        bonus_amount: bonusAmount,
+        processed_at: now, updated_at: now,
       })
       .eq('id', id);
 
@@ -115,8 +121,8 @@ export async function PATCH(req: NextRequest) {
       return_id: id,
       event: 'Store credit issued',
       detail: isImported
-        ? `$${refundAmount.toFixed(2)} credit (Redo import — Shopify not called)`
-        : `$${refundAmount.toFixed(2)} gift card issued (ending ${shopifyResult.lastCharacters || '?'})`,
+        ? `$${refundAmount.toFixed(2)} credit${bonusAmount > 0 ? ` (includes $${bonusAmount.toFixed(2)} bonus)` : ''} (Redo import — Shopify not called)`
+        : `$${refundAmount.toFixed(2)} gift card issued${bonusAmount > 0 ? ` (includes $${bonusAmount.toFixed(2)} bonus)` : ''} (ending ${shopifyResult.lastCharacters || '?'})`,
       event_date: now,
     });
 
@@ -157,12 +163,17 @@ export async function PATCH(req: NextRequest) {
     }
 
     const actualAmount = refundResult.amountRefunded || refundAmount;
+    // The frontend sends the net-of-fee amount. Fee = subtotal * 5%
+    const feeAmount = returnData.subtotal > 0 ? Math.round(returnData.subtotal * 0.05 * 100) / 100 : 0;
 
     const { error } = await supabase
       .from('returns')
       .update({
         status: 'done', outcome: 'refund',
-        final_amount: actualAmount, processed_at: now, updated_at: now,
+        final_amount: actualAmount, 
+        total_fees: feeAmount,
+        fee_per_item: returnData.item_count > 0 ? Math.round(feeAmount / returnData.item_count * 100) / 100 : 0,
+        processed_at: now, updated_at: now,
       })
       .eq('id', id);
 
@@ -172,8 +183,8 @@ export async function PATCH(req: NextRequest) {
       return_id: id,
       event: 'Refund issued',
       detail: isImported
-        ? `$${refundAmount.toFixed(2)} refund (Redo import — Shopify not called)`
-        : `$${actualAmount.toFixed(2)} refunded to original payment method`,
+        ? `$${refundAmount.toFixed(2)} refund (5% fee: $${feeAmount.toFixed(2)}) (Redo import — Shopify not called)`
+        : `$${actualAmount.toFixed(2)} refunded to original payment (5% fee: $${feeAmount.toFixed(2)}, subtotal was $${returnData.subtotal?.toFixed(2) || '0'})`,
       event_date: now,
     });
 
