@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Nav from '@/components/Nav';
-import { MetricCard } from '@/components/MetricCard';
 
 /* ─── Types ─── */
 
@@ -106,15 +105,15 @@ type NoteRow = { id: string; user_name: string; user_role: string; note_text: st
 const NICHES = ['Orthodox/Frum', 'LDS/Mormon', 'Modest Fashion General', 'Hijabi/Muslim Modest', 'Other'];
 const CONTENT_TYPES = ['Reels', 'Stories', 'Static Posts', 'TikTok'];
 
-const STATUS_META: Record<string, { label: string; bg: string; text: string; border?: string }> = {
-  prospect: { label: 'Prospect', bg: 'bg-stone-100', text: 'text-stone-600', border: 'border-stone-200' },
-  outreach: { label: 'Outreach', bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200/80' },
-  negotiating: { label: 'Negotiating', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  approved: { label: 'Approved', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200/80' },
-  shipped: { label: 'Shipped', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200/80' },
-  posted: { label: '✓ Posted', bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300' },
-  watchlist: { label: 'Watchlist', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/80' },
-  passed: { label: 'Passed', bg: 'bg-stone-50', text: 'text-stone-400', border: 'border-stone-200' },
+const STATUS_META: Record<string, { label: string; bg: string; text: string; border?: string; accent: string; bar: string }> = {
+  prospect: { label: 'Prospect', bg: 'bg-stone-200', text: 'text-stone-700', border: 'border-stone-300', accent: 'stone-500', bar: 'bg-stone-400' },
+  outreach: { label: 'Outreach', bg: 'bg-sky-100', text: 'text-sky-800', border: 'border-sky-300', accent: 'sky-600', bar: 'bg-sky-500' },
+  negotiating: { label: 'Negotiating', bg: 'bg-amber-100', text: 'text-amber-900', border: 'border-amber-400', accent: 'amber-600', bar: 'bg-amber-500' },
+  approved: { label: 'Approved', bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300', accent: 'emerald-600', bar: 'bg-emerald-500' },
+  shipped: { label: 'Shipped', bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300', accent: 'blue-600', bar: 'bg-blue-500' },
+  posted: { label: '✓ Posted', bg: 'bg-emerald-200', text: 'text-emerald-900', border: 'border-emerald-400', accent: 'emerald-700', bar: 'bg-emerald-600' },
+  watchlist: { label: 'Watchlist', bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-300', accent: 'purple-600', bar: 'bg-purple-500' },
+  passed: { label: 'Passed', bg: 'bg-stone-100', text: 'text-stone-400', border: 'border-stone-200', accent: 'stone-400', bar: 'bg-stone-300' },
 };
 
 const FILTERS = [
@@ -133,6 +132,22 @@ const FILTERS = [
 
 const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const fmtDateShort = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+const followersTone = (n: number | null): string => {
+  if (n === null || n === undefined) return 'text-red-500';
+  if (n < 2000) return 'text-amber-600';
+  return 'text-[var(--foreground)]';
+};
+const EMPTY_PER_FILTER: Record<string, string> = {
+  prospect: 'No prospects yet. Click + New Influencer to add one.',
+  outreach: 'No active outreach. Start reaching out to prospects!',
+  negotiating: 'No negotiations in progress.',
+  approved: 'No collabs approved yet.',
+  shipped: 'Nothing shipped this period.',
+  posted: 'No content posted yet.',
+  watchlist: 'No one on the watchlist.',
+  passed: 'No passed records.',
+};
 const fmtFollowers = (n: number | null): string => {
   if (n === null || n === undefined) return '—';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -153,11 +168,44 @@ function StatusBadge({ status, large }: { status: string; large?: boolean }) {
   return <span className={`${size} font-semibold rounded-lg border ${m.bg} ${m.text} ${m.border || ''}`}>{m.label}</span>;
 }
 
+function SortTh({ label, k, sortKey, sortDir, onClick, align, w }: {
+  label: string; k: string; sortKey: string; sortDir: 'asc' | 'desc';
+  onClick: (k: string) => void; align: 'left' | 'right' | 'center'; w: string;
+}) {
+  const active = sortKey === k;
+  return (
+    <th onClick={() => onClick(k)}
+      className={`px-2 py-2.5 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[var(--foreground)] transition-colors ${w} text-${align} ${active ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
+      <span className="inline-flex items-center gap-1">{label}{active && <span>{sortDir === 'asc' ? '↑' : '↓'}</span>}</span>
+    </th>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
       <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-1.5">{label}</div>
       {children}
+    </div>
+  );
+}
+
+const STAT_TONES: Record<string, { border: string; value: string }> = {
+  sky: { border: 'border-l-sky-500', value: 'text-sky-700' },
+  stone: { border: 'border-l-stone-400', value: 'text-stone-700' },
+  amber: { border: 'border-l-amber-500', value: 'text-amber-700' },
+  blue: { border: 'border-l-blue-600', value: 'text-blue-700' },
+  emerald: { border: 'border-l-emerald-500', value: 'text-emerald-700' },
+  purple: { border: 'border-l-purple-500', value: 'text-purple-700' },
+};
+
+function StatCard({ label, value, sub, tone, formula }: { label: string; value: string; sub?: string; tone: keyof typeof STAT_TONES; formula?: string }) {
+  const t = STAT_TONES[tone];
+  return (
+    <div className={`bg-[var(--card)] border border-[var(--border)] border-l-4 ${t.border} rounded-xl p-4 shadow-sm`} title={formula}>
+      <p className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
+      <p className={`font-heading text-2xl font-semibold mt-1 ${t.value}`}>{value}</p>
+      {sub && <p className="text-[11px] mt-1 text-[var(--muted-foreground)]">{sub}</p>}
     </div>
   );
 }
@@ -178,6 +226,13 @@ export default function InfluencersPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState('');
+  const [sortKey, setSortKey] = useState<string>('updated');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (k: string) => {
+    if (sortKey === k) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(k); setSortDir('desc'); }
+  };
 
   useEffect(() => {
     fetch('/api/auth', { method: 'GET' })
@@ -221,6 +276,22 @@ export default function InfluencersPage() {
     );
   }, [rows, search]);
 
+  const sortedRows = useMemo(() => {
+    return [...filteredRows].sort((a, b) => {
+      let av: string | number = 0, bv: string | number = 0;
+      switch (sortKey) {
+        case 'followers': av = a.follower_count || 0; bv = b.follower_count || 0; break;
+        case 'engagement': av = a.engagement_rate || 0; bv = b.engagement_rate || 0; break;
+        case 'collabs': av = a.collab_count; bv = b.collab_count; break;
+        case 'updated':
+        default: av = a.active_collab?.status_changed_at || a.created_at; bv = b.active_collab?.status_changed_at || b.created_at;
+      }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredRows, sortKey, sortDir]);
+
   if (!authed) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center p-6">
@@ -255,12 +326,12 @@ export default function InfluencersPage() {
           <section>
             <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Pipeline</div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <MetricCard label="Active Collabs" value={String(stats?.activeCollabs || 0)} sub="not posted/passed/watchlist" accent="sky" formula="Collabs across people whose status is not posted/passed/watchlist." />
-              <MetricCard label="Prospects" value={String(pipeline.prospect || 0)} sub="ready to reach out" accent={(pipeline.prospect || 0) > 0 ? 'amber' : undefined} formula="Latest collab status = prospect." />
-              <MetricCard label="Negotiating" value={String(pipeline.negotiating || 0)} sub="back & forth on terms" formula="Latest collab status = negotiating." />
-              <MetricCard label="Shipped" value={String(pipeline.shipped || 0)} sub="awaiting post" formula="Latest collab status = shipped." />
-              <MetricCard label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalCollabs || 0} total collabs`} formula="SUM of total_gift_value across shipped+posted collabs." />
-              <div className="hidden sm:block"><MetricCard label="Posts (Month)" value={String(stats?.thisMonth.posts || 0)} sub="content posted this month" formula="COUNT collabs with content_posted_date in current month." /></div>
+              <StatCard tone="sky" label="Active Collabs" value={String(stats?.activeCollabs || 0)} sub="not posted/passed" formula="Collabs whose status is not posted/passed/watchlist." />
+              <StatCard tone="stone" label="Prospects" value={String(pipeline.prospect || 0)} sub="ready to reach out" formula="Latest collab status = prospect." />
+              <StatCard tone="amber" label="Negotiating" value={String(pipeline.negotiating || 0)} sub="back & forth on terms" formula="Latest collab status = negotiating." />
+              <StatCard tone="blue" label="Shipped" value={String(pipeline.shipped || 0)} sub="awaiting post" formula="Latest collab status = shipped." />
+              <StatCard tone="emerald" label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalCollabs || 0} total collabs`} formula="SUM total_gift_value across shipped+posted." />
+              <div className="hidden sm:block"><StatCard tone="purple" label="Posts (Month)" value={String(stats?.thisMonth.posts || 0)} sub="content posted this month" formula="COUNT collabs with content_posted_date in current month." /></div>
             </div>
           </section>
         )}
@@ -269,11 +340,18 @@ export default function InfluencersPage() {
         <div className="flex items-center gap-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-2 overflow-x-auto whitespace-nowrap">
           {FILTERS.map(f => {
             const count = f.key === 'all' ? rows.length : (pipeline[f.key] || 0);
+            const sm = STATUS_META[f.key];
+            const isActive = filter === f.key;
             return (
               <button key={f.key} onClick={() => setFilter(f.key)}
-                className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-colors inline-flex items-center gap-1.5 ${filter === f.key ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
+                className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-all inline-flex items-center gap-1.5 ${isActive ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold shadow-sm' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
                 {f.label}
-                {count > 0 && f.key !== 'all' && <span className={`text-[10px] rounded-full min-w-[16px] px-1 ${filter === f.key ? 'bg-[var(--primary-foreground)]/20' : 'bg-[var(--muted)]'}`}>{count}</span>}
+                {count > 0 && (
+                  <span className={`text-[10px] font-semibold rounded-full min-w-[18px] px-1.5 ${
+                    isActive ? 'bg-[var(--primary-foreground)]/20 text-[var(--primary-foreground)]' :
+                    sm ? `${sm.bg} ${sm.text}` : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
+                  }`}>{count}</span>
+                )}
               </button>
             );
           })}
@@ -281,24 +359,28 @@ export default function InfluencersPage() {
 
         {/* Search + Add */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="relative flex-1 sm:max-w-md">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search handles, niches, notes…"
+          <div className="relative flex-1 sm:max-w-lg">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search handles, names, niches…"
               className="w-full py-2.5 px-4 pl-9 bg-[var(--card)] border border-[var(--border)] rounded-xl text-sm focus:outline-none focus:border-[var(--ring)]" />
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-xs">🔍</span>
           </div>
           <button onClick={() => setShowForm(true)}
-            className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-4 py-2.5 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity">
-            + New Influencer
+            className="sm:ml-auto text-[11px] tracking-wider uppercase font-semibold px-3.5 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity inline-flex items-center gap-1.5">
+            <span className="text-sm">+</span> New Influencer
           </button>
         </div>
 
         {/* Table / Cards */}
         {loading ? (
           <div className="text-center py-20 text-[var(--muted-foreground)] text-sm">Loading…</div>
-        ) : filteredRows.length === 0 ? (
+        ) : sortedRows.length === 0 ? (
           <div className="text-center py-20 text-[var(--muted-foreground)]">
             <div className="text-3xl mb-2">💌</div>
-            <div className="text-sm">{search ? `No influencers match "${search}"` : 'No influencers yet.'}</div>
+            <div className="text-sm">
+              {search ? `No influencers match "${search}"` :
+                filter !== 'all' && EMPTY_PER_FILTER[filter] ? EMPTY_PER_FILTER[filter] :
+                'No influencers yet.'}
+            </div>
           </div>
         ) : (
           <>
@@ -306,32 +388,42 @@ export default function InfluencersPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
-                    <th className="pl-4 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Handle</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[80px]">Followers</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[70px]">Engage</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[160px]">Niche</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[80px]">Collabs</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[120px]">Latest</th>
-                    <th className="px-2 pr-4 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[100px]">Updated</th>
+                    <th className="pl-5 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Handle</th>
+                    <SortTh label="Followers" k="followers" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="w-[90px]" />
+                    <SortTh label="Engage" k="engagement" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="w-[80px]" />
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[180px]">Niche</th>
+                    <SortTh label="Collabs" k="collabs" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="center" w="w-[80px]" />
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[130px]">Latest</th>
+                    <SortTh label="Updated" k="updated" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="pr-5 w-[80px]" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[var(--border)]">
-                  {filteredRows.map(r => (
-                    <tr key={r.id} onClick={() => setSelectedId(r.id)} className="cursor-pointer hover:bg-[var(--accent)]/40 transition-colors">
-                      <td className="pl-4 pr-2 py-3">
+                <tbody>
+                  {sortedRows.map((r, i) => (
+                    <tr key={r.id} onClick={() => setSelectedId(r.id)}
+                      className={`cursor-pointer hover:bg-[var(--accent)]/40 transition-colors border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--muted)]/20' : ''}`}>
+                      <td className="pl-5 pr-2 py-3">
                         <a href={igUrl(r.instagram_handle)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
                           title={r.bio || undefined}
                           className="text-sm font-semibold text-[var(--foreground)] hover:text-sky-600 hover:underline">{r.instagram_handle}</a>
-                        {r.full_name && <div className="text-[10px] text-[var(--muted-foreground)]">{r.full_name}</div>}
+                        {r.full_name && <div className="text-[10px] text-[var(--muted-foreground)] truncate max-w-[180px]">{r.full_name}</div>}
                       </td>
-                      <td className="px-2 py-3 text-right text-sm text-[var(--foreground)] tabular-nums">{fmtFollowers(r.follower_count)}</td>
+                      <td className={`px-2 py-3 text-right text-sm tabular-nums ${followersTone(r.follower_count)}`}>{fmtFollowers(r.follower_count)}</td>
                       <td className={`px-2 py-3 text-right text-sm font-semibold tabular-nums ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</td>
-                      <td className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
-                        {(r.niche_tags || []).length === 0 ? '—' : <span className="truncate inline-block max-w-[140px]">{r.niche_tags![0]}{r.niche_tags!.length > 1 && ` +${r.niche_tags!.length - 1}`}</span>}
+                      <td className="px-2 py-3">
+                        {(r.niche_tags || []).length === 0 ? <span className="text-xs text-[var(--muted-foreground)]">—</span> : (
+                          <div className="flex flex-wrap gap-1">
+                            {(r.niche_tags || []).slice(0, 2).map(n => (
+                              <span key={n} className="text-[9px] bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)] px-1.5 py-0.5 rounded">{n}</span>
+                            ))}
+                            {(r.niche_tags || []).length > 2 && <span className="text-[9px] text-[var(--muted-foreground)] self-center">+{(r.niche_tags || []).length - 2}</span>}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-2 py-3 text-center text-xs text-[var(--muted-foreground)]">{r.collab_count}</td>
+                      <td className="px-2 py-3 text-center">
+                        <span className="text-xs font-semibold bg-[var(--muted)] text-[var(--foreground)] rounded-full min-w-[22px] inline-block px-2 py-0.5">{r.collab_count}</span>
+                      </td>
                       <td className="px-2 py-3 text-center"><StatusBadge status={r.latest_status} /></td>
-                      <td className="px-2 pr-4 py-3 text-xs text-[var(--muted-foreground)]">{fmtDate(r.active_collab?.status_changed_at || r.created_at)}</td>
+                      <td className="px-2 pr-5 py-3 text-right text-xs text-[var(--muted-foreground)] tabular-nums">{fmtDateShort(r.active_collab?.status_changed_at || r.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -339,21 +431,29 @@ export default function InfluencersPage() {
             </div>
 
             <div className="md:hidden flex flex-col gap-2">
-              {filteredRows.map(r => (
-                <div key={r.id} onClick={() => setSelectedId(r.id)} className="p-4 bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-sm active:bg-[var(--accent)]">
-                  <div className="flex justify-between items-start mb-2 gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-[var(--foreground)] truncate">{r.instagram_handle}</div>
-                      <div className="text-xs">
-                        <span className="text-[var(--muted-foreground)]">{fmtFollowers(r.follower_count)} · </span>
-                        <span className={`font-semibold ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</span>
-                        <span className="text-[var(--muted-foreground)]"> · {r.collab_count} collab{r.collab_count !== 1 ? 's' : ''}</span>
+              {sortedRows.map(r => {
+                const sm = STATUS_META[r.latest_status] || STATUS_META.prospect;
+                return (
+                  <div key={r.id} onClick={() => setSelectedId(r.id)}
+                    className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-sm overflow-hidden active:bg-[var(--accent)] flex">
+                    <div className={`w-1 ${sm.bar}`} />
+                    <div className="flex-1 p-4 min-w-0">
+                      <div className="flex justify-between items-start mb-2 gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-[var(--foreground)] truncate">{r.instagram_handle}</div>
+                          <div className="text-xs">
+                            <span className={followersTone(r.follower_count)}>{fmtFollowers(r.follower_count)}</span>
+                            <span className="text-[var(--muted-foreground)]"> · </span>
+                            <span className={`font-semibold ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</span>
+                            <span className="text-[var(--muted-foreground)]"> · {r.collab_count} collab{r.collab_count !== 1 ? 's' : ''}</span>
+                          </div>
+                        </div>
+                        <StatusBadge status={r.latest_status} large />
                       </div>
                     </div>
-                    <StatusBadge status={r.latest_status} large />
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -643,7 +743,9 @@ function InfluencerPanel({ role, influencer, onClose, onRefresh, flash }: {
                   {influencer.shipping_phone && <div className="text-[var(--muted-foreground)]">{influencer.shipping_phone}</div>}
                 </div>
               ) : (
-                <div className="text-xs text-[var(--muted-foreground)] italic">No address on file</div>
+                <div className="bg-amber-50 border border-amber-200/70 rounded-lg px-3 py-2 text-xs text-amber-700">
+                  No address on file. Add one so you can create Shopify orders for any collab with this influencer.
+                </div>
               )
             ) : (
               <AddressEditor influencer={influencer} onSaved={() => { setEditAddress(false); flash('Saved'); onRefresh(); }} />
@@ -820,9 +922,12 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
   const products = collab.products || [];
   const giftValue = products.reduce((s, p) => s + (Number(p.price) || 0) * (Number(p.quantity) || 1), 0);
   const s = collab.status;
+  const sm = STATUS_META[s] || STATUS_META.prospect;
 
   return (
-    <div className={`border rounded-xl ${s === 'negotiating' && collab.counter_note ? 'border-amber-300 bg-amber-50/20' : 'border-[var(--border)] bg-[var(--card)]'}`}>
+    <div className={`border rounded-xl overflow-hidden flex ${s === 'negotiating' && collab.counter_note ? 'border-amber-300 bg-amber-50/20' : 'border-[var(--border)] bg-[var(--card)]'}`}>
+      <div className={`w-1 flex-shrink-0 ${sm.bar}`} />
+      <div className="flex-1 min-w-0">
       <button onClick={() => setExpanded(v => !v)} className="w-full text-left p-4 flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
@@ -963,6 +1068,7 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
