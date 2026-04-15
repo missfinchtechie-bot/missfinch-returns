@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const { password } = await req.json();
-  const adminPassword = process.env.ADMIN_PASSWORD || 'RSH0731';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'missfinch2026';
   const internPassword = process.env.INTERN_PASSWORD || 'intern2026';
 
   let role: Role | null = null;

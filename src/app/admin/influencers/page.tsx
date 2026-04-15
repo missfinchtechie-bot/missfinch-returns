@@ -42,6 +42,7 @@ type ShippingAddr = { firstName?: string; lastName?: string; address1?: string; 
 type Stats = {
   pipeline: Record<string, number>;
   thisMonth: { shipped: number; giftedValue: number; posts: number };
+  allTime: { totalGifted: number; totalInfluencers: number };
 };
 
 type NoteRow = { id: string; user_name: string; user_role: string; note_text: string; created_at: string };
@@ -52,6 +53,7 @@ const CONTENT_OPTIONS = ['Reels', 'Stories', 'Static Posts', 'TikTok'];
 
 const STATUS_META: Record<string, { label: string; bg: string; text: string }> = {
   pending_review: { label: 'Pending', bg: 'bg-amber-50 border-amber-200/80', text: 'text-amber-700' },
+  countered: { label: 'Countered', bg: 'bg-amber-100 border-amber-400', text: 'text-amber-800' },
   approved: { label: 'Approved', bg: 'bg-emerald-50 border-emerald-200/80', text: 'text-emerald-700' },
   declined: { label: 'Declined', bg: 'bg-red-50 border-red-200/80', text: 'text-red-600' },
   deal: { label: 'Deal', bg: 'bg-sky-50 border-sky-200/80', text: 'text-sky-700' },
@@ -64,6 +66,7 @@ const STATUS_META: Record<string, { label: string; bg: string; text: string }> =
 const FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'pending_review', label: 'Pending' },
+  { key: 'countered', label: 'Countered' },
   { key: 'approved', label: 'Approved' },
   { key: 'active', label: 'Active' },
   { key: 'complete', label: 'Complete' },
@@ -73,6 +76,19 @@ const FILTERS = [
 const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 const fmtNum = (n: number | null) => n === null || n === undefined ? '—' : n.toLocaleString();
+const fmtFollowers = (n: number | null): string => {
+  if (n === null || n === undefined) return '—';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
+  return String(n);
+};
+const engagementTone = (e: number | null): string => {
+  if (e === null || e === undefined) return 'text-[var(--muted-foreground)]';
+  if (e >= 3.5) return 'text-emerald-700';
+  if (e >= 3) return 'text-amber-700';
+  return 'text-red-600';
+};
+const instagramUrl = (handle: string) => `https://instagram.com/${handle.replace(/^@/, '')}`;
 
 type Role = 'admin' | 'intern';
 
@@ -89,6 +105,7 @@ export default function InfluencersPage() {
   const [showGuidelines, setShowGuidelines] = useState(false);
   const [toast, setToast] = useState('');
   const [role, setRole] = useState<Role | null>(null);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     fetch('/api/auth', { method: 'GET' })
@@ -159,12 +176,7 @@ export default function InfluencersPage() {
   return (
     <div className="min-h-screen bg-[var(--background)]">
       {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[var(--primary)] text-[var(--primary-foreground)] px-7 py-3 rounded-full text-sm font-medium z-[200] shadow-xl">{toast}</div>}
-      <Nav active="influencers" right={
-        <button onClick={() => setShowForm(true)}
-          className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-3 sm:px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity">
-          + Add Influencer
-        </button>
-      } />
+      <Nav active="influencers" />
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -186,6 +198,7 @@ export default function InfluencersPage() {
             <MetricCard label="Content Pending" value={String(contentPending)} sub="waiting on post" formula="shipped + content_pending. Influencers who have product but haven't posted yet." />
             <MetricCard label="Shipped (Month)" value={String(stats?.thisMonth.shipped || 0)} sub="this month" formula="COUNT(status='shipped') where status_changed_at in current month." />
             <MetricCard label="Gifted Value" value={fmtMoney(stats?.thisMonth.giftedValue || 0)} sub="this month" formula="SUM(products_to_send.price × quantity) for shipped/posted/complete in current month." />
+            <MetricCard label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalInfluencers || 0} influencers all time`} formula="SUM of products_to_send prices × qty across all shipped/posted/complete/content_pending records (all time)." />
             <MetricCard label="Posts Received" value={String(stats?.thisMonth.posts || 0)} sub="this month" formula="COUNT where content_posted_date in current month." />
           </div>
         </section>
@@ -197,20 +210,38 @@ export default function InfluencersPage() {
             <button key={f.key} onClick={() => setFilter(f.key)}
               className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-colors ${filter === f.key ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
               {f.label}
-              {f.key === 'pending_review' && pendingCount > 0 && <span className="ml-1.5 text-[10px] bg-amber-500 text-white rounded-full min-w-[16px] inline-block px-1">{pendingCount}</span>}
+              {f.key === 'pending_review' && pendingCount > 0 && (
+                <span className={`ml-1.5 text-[10px] rounded-full min-w-[16px] inline-block px-1 ${filter === f.key ? 'bg-[var(--primary-foreground)]/20' : 'bg-amber-500 text-white'}`}>{pendingCount}</span>
+              )}
             </button>
           ))}
         </div>
 
-        {/* Table */}
-        {loading ? (
-          <div className="text-center py-20 text-[var(--muted-foreground)] text-sm">Loading…</div>
-        ) : rows.length === 0 ? (
-          <div className="text-center py-20 text-[var(--muted-foreground)]">
-            <div className="text-3xl mb-2">💌</div>
-            <div className="text-sm">No influencers yet. Click &quot;+ Add Influencer&quot; to start.</div>
+        {/* Search + Add Influencer */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by handle…"
+              className="w-full py-2.5 px-4 pl-9 bg-[var(--card)] border border-[var(--border)] rounded-xl text-sm focus:outline-none focus:border-[var(--ring)]" />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-xs">🔍</span>
           </div>
-        ) : (
+          <button onClick={() => setShowForm(true)}
+            className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-4 py-2.5 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity">
+            + Add Influencer
+          </button>
+        </div>
+
+        {/* Table */}
+        {(() => {
+          const q = search.trim().toLowerCase();
+          const filteredRows = q ? rows.filter(r => r.instagram_handle.toLowerCase().includes(q)) : rows;
+          if (loading) return <div className="text-center py-20 text-[var(--muted-foreground)] text-sm">Loading…</div>;
+          if (filteredRows.length === 0) return (
+            <div className="text-center py-20 text-[var(--muted-foreground)]">
+              <div className="text-3xl mb-2">💌</div>
+              <div className="text-sm">{q ? `No influencers match "${search}"` : 'No influencers yet. Click "+ Add Influencer" to start.'}</div>
+            </div>
+          );
+          return (
           <>
             {/* Desktop table */}
             <div className="hidden md:block bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-sm">
@@ -218,29 +249,48 @@ export default function InfluencersPage() {
                 <thead>
                   <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
                     <th className="pl-4 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Handle</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[110px]">Followers</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[90px]">Engage</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[200px]">Niche</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[130px]">Status</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[110px]">Deal</th>
-                    <th className="px-2 pr-4 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[110px]">Added</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[80px]">Followers</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[70px]">Engage</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[140px]">Niche</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[150px]">Content</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[110px]">Status</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[90px]">Deal</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[80px]">Products</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[90px]">Added</th>
+                    <th className="px-2 pr-4 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[70px]">By</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {rows.map(r => {
+                  {filteredRows.map(r => {
                     const sm = STATUS_META[r.status] || STATUS_META.pending_review;
+                    const niches = r.niche_tags || [];
+                    const contentTypes = r.content_types || [];
+                    const productCount = (r.products_to_send || []).length;
                     return (
                       <tr key={r.id} onClick={() => setSelected(r)} className="cursor-pointer hover:bg-[var(--accent)]/40 transition-colors">
                         <td className="pl-4 pr-2 py-3">
-                          <div className="text-sm font-semibold text-[var(--foreground)]">{r.instagram_handle}</div>
-                          {r.created_by === 'intern' && <div className="text-[10px] text-[var(--muted-foreground)]">via intern</div>}
+                          <a href={instagramUrl(r.instagram_handle)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            className="text-sm font-semibold text-[var(--foreground)] hover:text-sky-600 hover:underline">{r.instagram_handle}</a>
                         </td>
-                        <td className="px-2 py-3 text-right text-sm text-[var(--foreground)]">{fmtNum(r.follower_count)}</td>
-                        <td className="px-2 py-3 text-right text-sm text-[var(--foreground)]">{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</td>
-                        <td className="px-2 py-3 text-xs text-[var(--muted-foreground)] truncate">{(r.niche_tags || []).join(', ') || '—'}</td>
+                        <td className="px-2 py-3 text-right text-sm text-[var(--foreground)] tabular-nums">{fmtFollowers(r.follower_count)}</td>
+                        <td className={`px-2 py-3 text-right text-sm font-semibold tabular-nums ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</td>
+                        <td className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
+                          {niches.length === 0 ? '—' : (
+                            <span className="truncate inline-block max-w-[120px] align-middle">{niches[0]}{niches.length > 1 && <span className="text-[10px]"> +{niches.length - 1}</span>}</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {contentTypes.slice(0, 2).map(c => <span key={c} className="text-[9px] bg-sky-50 border border-sky-200/70 px-1.5 py-0.5 rounded text-sky-700">{c}</span>)}
+                            {contentTypes.length > 2 && <span className="text-[9px] text-[var(--muted-foreground)]">+{contentTypes.length - 2}</span>}
+                            {contentTypes.length === 0 && <span className="text-xs text-[var(--muted-foreground)]">—</span>}
+                          </div>
+                        </td>
                         <td className="px-2 py-3 text-center"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border ${sm.bg} ${sm.text}`}>{sm.label}</span></td>
                         <td className="px-2 py-3 text-xs text-[var(--muted-foreground)]">{r.deal_type || '—'}</td>
-                        <td className="px-2 pr-4 py-3 text-xs text-[var(--muted-foreground)]">{fmtDate(r.created_at)}</td>
+                        <td className="px-2 py-3 text-xs text-[var(--muted-foreground)]">{productCount > 0 ? `${productCount} item${productCount !== 1 ? 's' : ''}` : '—'}</td>
+                        <td className="px-2 py-3 text-xs text-[var(--muted-foreground)]">{fmtDate(r.created_at)}</td>
+                        <td className="px-2 pr-4 py-3 text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">{r.created_by || 'admin'}</td>
                       </tr>
                     );
                   })}
@@ -250,24 +300,28 @@ export default function InfluencersPage() {
 
             {/* Mobile cards */}
             <div className="md:hidden flex flex-col gap-2">
-              {rows.map(r => {
+              {filteredRows.map(r => {
                 const sm = STATUS_META[r.status] || STATUS_META.pending_review;
                 return (
                   <div key={r.id} onClick={() => setSelected(r)} className="p-4 bg-[var(--card)] rounded-xl border border-[var(--border)] active:bg-[var(--accent)] shadow-sm">
                     <div className="flex justify-between items-start mb-1.5">
                       <div className="min-w-0 flex-1 mr-3">
                         <div className="font-semibold text-[var(--foreground)]">{r.instagram_handle}</div>
-                        <div className="text-xs text-[var(--muted-foreground)]">{fmtNum(r.follower_count)} followers · {r.engagement_rate ? `${r.engagement_rate}%` : '—'}</div>
+                        <div className="text-xs">
+                          <span className="text-[var(--muted-foreground)]">{fmtFollowers(r.follower_count)} followers · </span>
+                          <span className={`font-semibold ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate ? `${r.engagement_rate}%` : '—'}</span>
+                        </div>
                       </div>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border ${sm.bg} ${sm.text}`}>{sm.label}</span>
                     </div>
-                    <div className="text-xs text-[var(--muted-foreground)]">{(r.niche_tags || []).join(', ')}</div>
+                    <div className="text-[10px] text-[var(--muted-foreground)]">{fmtDate(r.created_at)}</div>
                   </div>
                 );
               })}
             </div>
           </>
-        )}
+          );
+        })()}
       </main>
 
       {showForm && <SubmitForm role={role} onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); flash('Submitted for review ✓'); fetchRows(); }} />}
@@ -290,6 +344,7 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
   const [alreadyContacted, setAlreadyContacted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const [formProducts, setFormProducts] = useState<Product[]>([]);
 
   // Auto-generate profile URL when handle entered
   useEffect(() => {
@@ -307,11 +362,14 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
   const warnings: string[] = [];
   const fNum = parseInt(followers) || 0;
   const eNum = parseFloat(engagement) || 0;
+  const totalProductValue = formProducts.reduce((s, p) => s + (Number(p.price) || 0) * (Number(p.quantity) || 1), 0);
   if (fNum > 50000) warnings.push('Above micro-influencer range (5K-50K). Larger accounts typically want paid deals.');
   if (fNum > 0 && fNum < 2000) warnings.push('Very small account. Gifted product may not generate meaningful reach.');
   if (eNum > 0 && eNum < 3) warnings.push('Below our 3-4% minimum engagement target.');
   if (niches.length === 1 && niches[0] === 'Other') warnings.push('Not in core modest fashion niches. Explain audience fit in notes.');
   if (alreadyContacted) warnings.push('Ryan may have already been in touch — confirm before re-engaging.');
+  if (formProducts.length > 3) warnings.push('That’s a lot for a gifted collab. Ryan may counter to limit the quantity.');
+  if (totalProductValue > 500) warnings.push('High total retail value. Make sure the account size justifies this gift.');
 
   const submit = async () => {
     if (!handle.trim()) return;
@@ -329,6 +387,7 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
         bio_notes: [notes.trim(), askedFor.trim() ? `\n\n— What they asked for —\n${askedFor.trim()}` : ''].join('') || null,
         already_contacted: alreadyContacted,
         created_by: role,
+        products_to_send: formProducts,
       }),
     });
     setSubmitting(false);
@@ -366,10 +425,24 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
                   <div className="flex flex-wrap gap-1.5">{content.map(c => <span key={c} className="text-[11px] bg-sky-50 border border-sky-200/70 px-2 py-0.5 rounded-lg text-sky-700">{c}</span>)}</div>
                 </div>
               )}
+              {formProducts.length > 0 && (
+                <div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-1">Products ({formProducts.length}) — ${totalProductValue.toFixed(0)} total</div>
+                  <div className="space-y-1">
+                    {formProducts.map((p, i) => <div key={i} className="text-xs text-[var(--foreground)]">• {p.title} × {p.quantity || 1} — ${(p.price || 0).toFixed(0)}</div>)}
+                  </div>
+                </div>
+              )}
               {notes && (
                 <div>
                   <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-1">Why this influencer?</div>
                   <div className="text-sm text-[var(--foreground)] whitespace-pre-wrap">{notes}</div>
+                </div>
+              )}
+              {askedFor && (
+                <div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-1">DM / Asked for</div>
+                  <div className="text-sm text-[var(--foreground)] whitespace-pre-wrap">{askedFor}</div>
                 </div>
               )}
               {alreadyContacted && <div className="text-xs text-amber-700">⚠ Ryan may have already contacted</div>}
@@ -395,8 +468,16 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
           <div className="text-[11px] text-[var(--muted-foreground)]">Submitting as <b className="text-[var(--foreground)]">{role}</b></div>
 
           <Field label="Instagram Handle *">
-            <input value={handle} onChange={e => setHandle(e.target.value)} placeholder="@username"
-              className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:border-[var(--ring)]" />
+            <div className="flex items-stretch gap-2">
+              <input value={handle} onChange={e => setHandle(e.target.value)} placeholder="@username"
+                className="flex-1 p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:border-[var(--ring)]" />
+              {handle.trim() && (
+                <a href={instagramUrl(handle)} target="_blank" rel="noreferrer"
+                  className="px-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-xs text-sky-600 hover:bg-[var(--accent)] inline-flex items-center whitespace-nowrap">
+                  View Profile ↗
+                </a>
+              )}
+            </div>
           </Field>
 
           <Field label="Profile URL">
@@ -435,6 +516,15 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
                 </button>
               ))}
             </div>
+          </Field>
+
+          <Field label="Products Requested">
+            <ProductPicker products={formProducts} setProducts={setFormProducts} />
+            {formProducts.length > 0 && (
+              <div className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+                Total retail value: <span className="font-semibold text-[var(--foreground)]">${totalProductValue.toFixed(0)}</span>
+              </div>
+            )}
           </Field>
 
           <Field label="Why this influencer?">
@@ -643,11 +733,22 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
     setContentOpen(false);
   };
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const sm = STATUS_META[influencer.status] || STATUS_META.pending_review;
-  const canApprove = isAdmin && influencer.status === 'pending_review';
+  const canApprove = isAdmin && (influencer.status === 'pending_review' || influencer.status === 'countered');
   const canEditDeal = isAdmin;
   const showDeal = ['approved', 'deal', 'shipped', 'content_pending', 'posted', 'complete'].includes(influencer.status);
   const showContent = ['shipped', 'content_pending', 'posted', 'complete'].includes(influencer.status);
+  const isCountered = influencer.status === 'countered';
+
+  const deleteInfluencer = async () => {
+    setBusy(true);
+    const res = await fetch(`/api/influencers?id=${influencer.id}`, { method: 'DELETE' });
+    setBusy(false);
+    if (res.ok) { flash('Deleted'); onChange(influencer.id); onClose(); }
+    else flash('Delete failed');
+  };
 
   return (
     <div className="fixed inset-0 z-50">
@@ -668,16 +769,17 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-heading text-xl font-semibold text-[var(--foreground)] truncate">{influencer.instagram_handle}</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <a href={instagramUrl(influencer.instagram_handle)} target="_blank" rel="noreferrer"
+                className="font-heading text-xl font-semibold text-[var(--foreground)] truncate hover:text-sky-600 hover:underline">
+                {influencer.instagram_handle} ↗
+              </a>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border ${sm.bg} ${sm.text}`}>{sm.label}</span>
             </div>
-            <div className="text-xs text-[var(--muted-foreground)] mt-1">
-              {fmtNum(influencer.follower_count)} followers · {influencer.engagement_rate !== null ? `${influencer.engagement_rate}%` : '—'} engagement
+            <div className="text-xs mt-1">
+              <span className="text-[var(--muted-foreground)]">{fmtFollowers(influencer.follower_count)} followers · </span>
+              <span className={`font-semibold ${engagementTone(influencer.engagement_rate)}`}>{influencer.engagement_rate !== null ? `${influencer.engagement_rate}%` : '—'} engagement</span>
             </div>
-            {influencer.profile_url && (
-              <a href={influencer.profile_url} target="_blank" rel="noreferrer" className="text-xs text-sky-600 hover:underline">View profile ↗</a>
-            )}
           </div>
           <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">✕</button>
         </div>
@@ -694,11 +796,17 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
           {influencer.declined_reason && <div className="text-[11px] text-red-600">Declined: {influencer.declined_reason}</div>}
         </section>
 
-        {/* Counter note badge (if one exists) */}
-        {influencer.declined_reason?.startsWith('COUNTER:') && (
-          <div className="bg-amber-50 border border-amber-200/70 rounded-xl p-3 text-xs text-amber-700">
-            <div className="uppercase tracking-wider font-semibold text-[10px] mb-1">Ryan says (needs revision)</div>
-            {influencer.declined_reason.replace(/^COUNTER:\s*/, '')}
+        {/* Counter banner */}
+        {isCountered && influencer.declined_reason && (
+          <div className="bg-amber-100 border-l-4 border-amber-500 rounded-xl p-4 text-sm text-amber-900">
+            <div className="uppercase tracking-wider font-bold text-[11px] mb-1">⚠ Counter — needs revision</div>
+            <div className="whitespace-pre-wrap">{influencer.declined_reason}</div>
+            {!isAdmin && (
+              <button onClick={() => act('resubmit').then(ok => ok && flash('Resubmitted for review'))} disabled={busy}
+                className="mt-3 px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+                Resubmit for Review
+              </button>
+            )}
           </div>
         )}
 
@@ -906,6 +1014,29 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
             </button>
           </div>
         </section>
+
+        {/* Delete (admin only, bottom of panel) */}
+        {isAdmin && (
+          <section className="pt-4 border-t border-[var(--border)]">
+            {!confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)} disabled={busy}
+                className="text-xs text-red-600 hover:text-red-700 hover:underline font-medium">
+                Delete this influencer
+              </button>
+            ) : (
+              <div className="bg-red-50 border border-red-200/70 rounded-xl p-3 space-y-2">
+                <div className="text-xs text-red-700">
+                  Delete <b>{influencer.instagram_handle}</b>? This cannot be undone.
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={deleteInfluencer} disabled={busy}
+                    className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">Delete</button>
+                  <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs text-[var(--muted-foreground)]">Cancel</button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Activity log */}
         <section>

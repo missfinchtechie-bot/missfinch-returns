@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
   const {
     instagram_handle, profile_url, follower_count, engagement_rate,
     niche_tags, content_types, bio_notes, already_contacted,
+    products_to_send,
     created_by = 'intern',
   } = body;
 
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
     content_types: content_types || [],
     bio_notes: bio_notes || null,
     already_contacted: !!already_contacted,
+    products_to_send: products_to_send || [],
     created_by,
     status: 'pending_review',
   }).select().single();
@@ -69,6 +71,25 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ influencer: data });
+}
+
+export async function DELETE(req: NextRequest) {
+  const supabase = getServiceClient();
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+  const { data: inf } = await supabase.from('influencers').select('instagram_handle').eq('id', id).single();
+  if (inf) {
+    await supabase.from('influencer_activity_log').insert({
+      influencer_id: id, user_role: 'admin', action: 'deleted',
+      details: { handle: inf.instagram_handle },
+    });
+  }
+
+  // ON DELETE CASCADE on FK takes care of notes + activity
+  const { error } = await supabase.from('influencers').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -91,12 +112,20 @@ export async function PATCH(req: NextRequest) {
     update.declined_reason = fields.declined_reason;
     logDetails = { reason: fields.declined_reason };
   } else if (action === 'counter') {
-    // Stays in pending_review but flagged with a counter note (stored in declined_reason for display)
     if (!fields.counter_note) return NextResponse.json({ error: 'Counter note required' }, { status: 400 });
+    update.status = 'countered';
+    update.status_changed_at = now;
+    update.declined_reason = fields.counter_note;
+    logDetails = { note: fields.counter_note };
+  } else if (action === 'resubmit') {
     update.status = 'pending_review';
     update.status_changed_at = now;
-    update.declined_reason = `COUNTER: ${fields.counter_note}`;
-    logDetails = { note: fields.counter_note };
+    update.declined_reason = null;
+    const editable = ['follower_count', 'engagement_rate', 'niche_tags', 'content_types', 'bio_notes', 'products_to_send'];
+    for (const k of editable) if (fields[k] !== undefined) update[k] = fields[k];
+  } else if (action === 'mark_content_pending') {
+    update.status = 'content_pending';
+    update.status_changed_at = now;
   } else if (action === 'set_deal') {
     update = {
       ...update,
