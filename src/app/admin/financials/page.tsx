@@ -44,8 +44,7 @@ function rangeFor(preset: PresetKey, customFrom?: string, customTo?: string): { 
     return { from: startOfDay(now).toISOString(), to: endOfDay(now).toISOString() };
   }
   if (preset === 'week') {
-    const start = new Date(now);
-    start.setDate(now.getDate() - now.getDay());
+    const start = new Date(now); start.setDate(now.getDate() - now.getDay());
     return { from: startOfDay(start).toISOString(), to: endOfDay(now).toISOString() };
   }
   if (preset === 'month') {
@@ -58,8 +57,7 @@ function rangeFor(preset: PresetKey, customFrom?: string, customTo?: string): { 
     return { from: startOfDay(start).toISOString(), to: endOfDay(end).toISOString() };
   }
   if (preset === '90d') {
-    const start = new Date(now);
-    start.setDate(now.getDate() - 90);
+    const start = new Date(now); start.setDate(now.getDate() - 90);
     return { from: startOfDay(start).toISOString(), to: endOfDay(now).toISOString() };
   }
   return {
@@ -68,12 +66,8 @@ function rangeFor(preset: PresetKey, customFrom?: string, customTo?: string): { 
   };
 }
 
-const fmtMoney = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-
-const fmtMoneyCents = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-
+const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+const fmtMoneyCents = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 
 export default function FinancialsPage() {
@@ -88,16 +82,10 @@ export default function FinancialsPage() {
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState('');
 
-  useEffect(() => {
-    fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {});
-  }, []);
+  useEffect(() => { fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
 
   const login = async () => {
-    const res = await fetch('/api/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
-    });
+    const res = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
     if (res.ok) { setAuthed(true); setPwErr(''); } else setPwErr('Wrong password');
   };
 
@@ -109,34 +97,22 @@ export default function FinancialsPage() {
       const p = new URLSearchParams({ from: range.from, to: range.to });
       const res = await fetch(`/api/financials/overview?${p}`);
       if (res.ok) setData(await res.json());
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }, [range.from, range.to]);
 
   useEffect(() => { if (authed) fetchOverview(); }, [authed, fetchOverview]);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 3000);
-  };
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
   const sync = async (days: number) => {
     setSyncing(true);
     try {
       const res = await fetch(`/api/financials/sync?days=${days}`);
       const json = await res.json();
-      if (json.success) {
-        showToast(`Synced ${json.orders} orders, ${json.refunds} refunds, ${json.transactions} fees`);
-        await fetchOverview();
-      } else {
-        showToast(`Sync failed: ${json.error}`);
-      }
-    } catch (e) {
-      showToast(`Sync error: ${e instanceof Error ? e.message : 'unknown'}`);
-    } finally {
-      setSyncing(false);
-    }
+      if (json.success) { showToast(`Synced ${json.orders} orders, ${json.refunds} refunds, ${json.transactions} fees`); await fetchOverview(); }
+      else showToast(`Sync failed: ${json.error}`);
+    } catch (e) { showToast(`Sync error: ${e instanceof Error ? e.message : 'unknown'}`); }
+    finally { setSyncing(false); }
   };
 
   if (!authed) {
@@ -147,18 +123,10 @@ export default function FinancialsPage() {
             <h1 className="font-heading text-3xl font-semibold text-[var(--foreground)] tracking-wide">MISS FINCH</h1>
             <p className="text-sm text-[var(--muted-foreground)] mt-1 tracking-widest uppercase">Financials</p>
           </div>
-          <input
-            type="password"
-            value={pw}
-            onChange={e => setPw(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && login()}
-            placeholder="Enter password"
-            className="w-full p-4 rounded-xl border border-[var(--border)] text-lg text-center focus:outline-none focus:border-[var(--primary)] bg-[var(--card)]"
-          />
+          <input type="password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && login()}
+            placeholder="Enter password" className="w-full p-4 rounded-xl border border-[var(--border)] text-lg text-center focus:outline-none focus:border-[var(--primary)] bg-[var(--card)]" />
           {pwErr && <p className="text-red-500 text-center text-sm mt-3">{pwErr}</p>}
-          <button onClick={login} className="w-full mt-4 p-4 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-base font-semibold hover:opacity-90 transition-opacity">
-            Log In
-          </button>
+          <button onClick={login} className="w-full mt-4 p-4 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-base font-semibold hover:opacity-90 transition-opacity">Log In</button>
         </div>
       </div>
     );
@@ -168,13 +136,26 @@ export default function FinancialsPage() {
   const daily = data?.daily || [];
   const maxBar = Math.max(1, ...daily.map(d => Math.max(d.revenue, d.refunds)));
 
+  // Mock data for sections not yet wired up
+  const mockAdSpend = { meta: 4820, google: 3150, totalSpend: 7970, metaRoas: 3.2, googleRoas: 2.8, blendedRoas: 3.0, blendedCac: 42 };
+  const mockExpenses = [
+    { category: 'Ad Spend', amount: 7970, pct: 48 },
+    { category: 'Shopify Fees', amount: s?.shopifyFees || 890, pct: 11 },
+    { category: 'Shipping', amount: 1240, pct: 8 },
+    { category: 'Apps & Tools', amount: 896, pct: 5 },
+    { category: 'Redo (Returns)', amount: 596, pct: 4 },
+    { category: 'Rent & Office', amount: 2800, pct: 17 },
+    { category: 'Owner Draw', amount: 3500, pct: 21 },
+  ];
+  const mockCogs = 6200;
+  const netRev = s?.netRevenue || 0;
+  const grossMargin = netRev - mockCogs;
+  const totalExpenses = mockExpenses.reduce((s, e) => s + e.amount, 0);
+  const netProfit = grossMargin - totalExpenses + (s?.shopifyFees || 0); // shopify fees already in expenses
+
   return (
     <div className="min-h-screen bg-[var(--background)]">
-      {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[var(--primary)] text-[var(--primary-foreground)] px-7 py-3 rounded-full text-sm font-medium z-[200] shadow-xl">
-          {toast}
-        </div>
-      )}
+      {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-[var(--primary)] text-[var(--primary-foreground)] px-7 py-3 rounded-full text-sm font-medium z-[200] shadow-xl">{toast}</div>}
 
       <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 sm:px-6 py-3.5 shadow-sm">
         <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4">
@@ -188,82 +169,56 @@ export default function FinancialsPage() {
               <span className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-2 sm:px-3 py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-md">Financials</span>
             </div>
           </div>
-          <button
-            onClick={() => sync(30)}
-            disabled={syncing}
-            className="text-xs tracking-wider uppercase font-semibold px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
+          <button onClick={() => sync(30)} disabled={syncing}
+            className="text-[11px] sm:text-xs tracking-wider uppercase font-semibold px-3 sm:px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50 transition-opacity">
             {syncing ? 'Syncing…' : 'Sync Now'}
           </button>
         </div>
       </header>
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* Date picker */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Overview</h2>
-            <button
-              onClick={() => sync(90)}
-              disabled={syncing}
-              className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
-            >
-              Backfill 90d
-            </button>
+            <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Financial Overview</h2>
+            <button onClick={() => sync(90)} disabled={syncing}
+              className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50">Backfill 90d</button>
           </div>
-
           <div className="flex flex-wrap items-center gap-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-2">
             {PRESETS.map(p => (
-              <button
-                key={p.key}
-                onClick={() => setPreset(p.key)}
-                className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-colors ${
-                  preset === p.key
-                    ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold'
-                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'
-                }`}
-              >
+              <button key={p.key} onClick={() => setPreset(p.key)}
+                className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-colors ${preset === p.key ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
                 {p.label}
               </button>
             ))}
             {preset === 'custom' && (
               <div className="flex items-center gap-2 ml-2">
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={e => setCustomFrom(e.target.value)}
-                  className="text-xs px-2 py-1 border border-[var(--border)] rounded-md bg-[var(--card)]"
-                />
+                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="text-xs px-2 py-1 border border-[var(--border)] rounded-md bg-[var(--card)]" />
                 <span className="text-[var(--muted-foreground)] text-xs">→</span>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={e => setCustomTo(e.target.value)}
-                  className="text-xs px-2 py-1 border border-[var(--border)] rounded-md bg-[var(--card)]"
-                />
+                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="text-xs px-2 py-1 border border-[var(--border)] rounded-md bg-[var(--card)]" />
               </div>
             )}
           </div>
         </section>
 
-        {loading && !s && <p className="text-[var(--muted-foreground)] text-sm">Loading…</p>}
+        {loading && !s && <p className="text-[var(--muted-foreground)] text-sm py-12 text-center">Loading…</p>}
 
         {s && (
           <>
-            <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <Card label="Net Revenue" value={fmtMoney(s.netRevenue)} sub={`${s.orderCount} orders`} />
-              <Card label="Gross Revenue" value={fmtMoney(s.grossRevenue)} sub="Before refunds" />
-              <Card label="Refunds" value={fmtMoney(s.refundTotal)} sub={fmtPct(s.refundRate)} />
-              <Card label="Avg Order" value={fmtMoneyCents(s.aov)} sub="Including tax + ship" />
-              <Card label="Shopify Fees" value={fmtMoney(s.shopifyFees)} sub="Payment processing" />
-              <Card label="Discounts" value={fmtMoney(s.discounts)} sub="Codes + promos" />
+            {/* ─── Revenue Cards ─── */}
+            <section>
+              <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Revenue</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <Card label="Net Revenue" value={fmtMoney(s.netRevenue)} sub={`${s.orderCount} orders`} accent />
+                <Card label="Gross Revenue" value={fmtMoney(s.grossRevenue)} sub="Before refunds" />
+                <Card label="Refunds" value={fmtMoney(s.refundTotal)} sub={fmtPct(s.refundRate)} negative />
+                <Card label="Avg Order" value={fmtMoneyCents(s.aov)} sub="Including tax + ship" />
+                <Card label="Discounts" value={fmtMoney(s.discounts)} sub="Codes + promos" negative />
+                <Card label="Shipping" value={fmtMoney(s.shipping)} sub="Collected from customers" />
+              </div>
             </section>
 
-            <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Card label="Shipping Collected" value={fmtMoney(s.shipping)} />
-              <Card label="Tax Collected" value={fmtMoney(s.tax)} sub="Pass-through to state" />
-              <Card label="Total Revenue" value={fmtMoney(s.totalRevenue)} sub="All charges" />
-            </section>
-
+            {/* ─── Revenue Chart ─── */}
             <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Daily Revenue vs Refunds</h3>
@@ -279,14 +234,8 @@ export default function FinancialsPage() {
                   {daily.map(d => (
                     <div key={d.date} className="flex-1 flex flex-col items-center gap-0.5 group relative min-w-0">
                       <div className="w-full flex items-end gap-0.5 h-full">
-                        <div
-                          className="flex-1 bg-emerald-500 rounded-t-sm min-h-[1px]"
-                          style={{ height: `${(d.revenue / maxBar) * 100}%` }}
-                        />
-                        <div
-                          className="flex-1 bg-red-400 rounded-t-sm min-h-[1px]"
-                          style={{ height: `${(d.refunds / maxBar) * 100}%` }}
-                        />
+                        <div className="flex-1 bg-emerald-500 rounded-t-sm min-h-[1px]" style={{ height: `${(d.revenue / maxBar) * 100}%` }} />
+                        <div className="flex-1 bg-red-400 rounded-t-sm min-h-[1px]" style={{ height: `${(d.refunds / maxBar) * 100}%` }} />
                       </div>
                       <div className="hidden group-hover:block absolute bottom-full mb-2 bg-[var(--foreground)] text-[var(--background)] text-[10px] px-2 py-1 rounded whitespace-nowrap z-10">
                         {d.date}: {fmtMoney(d.revenue)} / {fmtMoney(d.refunds)}
@@ -302,6 +251,70 @@ export default function FinancialsPage() {
                 </div>
               )}
             </section>
+
+            {/* ─── Ad Spend (mock) ─── */}
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Ad Spend</div>
+                <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200/80 px-2 py-0.5 rounded-lg font-semibold">Mock Data</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Card label="Meta Ads" value={fmtMoney(mockAdSpend.meta)} sub={`${mockAdSpend.metaRoas}x ROAS`} />
+                <Card label="Google Ads" value={fmtMoney(mockAdSpend.google)} sub={`${mockAdSpend.googleRoas}x ROAS`} />
+                <Card label="Total Spend" value={fmtMoney(mockAdSpend.totalSpend)} sub={`${mockAdSpend.blendedRoas}x blended`} negative />
+                <Card label="Blended CAC" value={`$${mockAdSpend.blendedCac}`} sub={`${s.orderCount} orders`} />
+              </div>
+            </section>
+
+            {/* ─── Expenses (mock) ─── */}
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Expenses</div>
+                <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200/80 px-2 py-0.5 rounded-lg font-semibold">Mock Data</span>
+              </div>
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
+                {mockExpenses.map((e, i) => (
+                  <div key={e.category} className={`flex items-center justify-between px-5 py-3 ${i > 0 ? 'border-t border-[var(--border)]' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-[var(--foreground)] font-medium">{e.category}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="w-24 h-2 bg-[var(--muted)] rounded-full overflow-hidden hidden sm:block">
+                        <div className="h-full bg-[var(--ring)] rounded-full" style={{ width: `${Math.min(e.pct * 2, 100)}%` }} />
+                      </div>
+                      <span className="text-sm font-semibold text-[var(--foreground)] w-20 text-right">{fmtMoney(e.amount)}</span>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-5 py-3 border-t-2 border-[var(--foreground)]/10 bg-[var(--muted)]">
+                  <span className="text-sm text-[var(--foreground)] font-bold">Total Expenses</span>
+                  <span className="text-sm font-bold text-[var(--foreground)]">{fmtMoney(totalExpenses)}</span>
+                </div>
+              </div>
+            </section>
+
+            {/* ─── P&L Summary (mock) ─── */}
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Profit & Loss</div>
+                <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200/80 px-2 py-0.5 rounded-lg font-semibold">Mock Data</span>
+              </div>
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+                <PLRow label="Net Revenue" value={netRev} bold />
+                <PLRow label="Cost of Goods Sold" value={-mockCogs} />
+                <div className="border-t border-[var(--border)]" />
+                <PLRow label="Gross Margin" value={grossMargin} bold sub={`${((grossMargin / netRev) * 100).toFixed(1)}% margin`} />
+                <PLRow label="Ad Spend (Meta + Google)" value={-mockAdSpend.totalSpend} />
+                <PLRow label="Shopify Fees" value={-(s.shopifyFees || 0)} />
+                <PLRow label="Shipping Costs" value={-1240} />
+                <PLRow label="Apps & Tools" value={-896} />
+                <PLRow label="Redo (Returns)" value={-596} />
+                <PLRow label="Rent & Office" value={-2800} />
+                <PLRow label="Owner Draw" value={-3500} />
+                <div className="border-t-2 border-[var(--foreground)]/20" />
+                <PLRow label="Net Profit" value={netProfit} bold accent />
+              </div>
+            </section>
           </>
         )}
       </main>
@@ -309,12 +322,27 @@ export default function FinancialsPage() {
   );
 }
 
-function Card({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Card({ label, value, sub, accent, negative }: { label: string; value: string; sub?: string; accent?: boolean; negative?: boolean }) {
   return (
-    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm">
+    <div className={`border rounded-xl p-4 shadow-sm ${accent ? 'bg-emerald-50/50 border-emerald-200/60' : 'bg-[var(--card)] border-[var(--border)]'}`}>
       <p className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
-      <p className="font-heading text-2xl font-semibold text-[var(--foreground)] mt-1">{value}</p>
+      <p className={`font-heading text-2xl font-semibold mt-1 ${negative ? 'text-red-600' : accent ? 'text-emerald-700' : 'text-[var(--foreground)]'}`}>{value}</p>
       {sub && <p className="text-[11px] text-[var(--muted-foreground)] mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function PLRow({ label, value, bold, sub, accent }: { label: string; value: number; bold?: boolean; sub?: string; accent?: boolean }) {
+  const isNeg = value < 0;
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <span className={`text-sm ${bold ? 'font-semibold text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>{label}</span>
+        {sub && <span className="text-[11px] text-[var(--muted-foreground)] ml-2">{sub}</span>}
+      </div>
+      <span className={`text-sm font-semibold ${accent ? (value >= 0 ? 'text-emerald-600' : 'text-red-600') : isNeg ? 'text-red-500' : 'text-[var(--foreground)]'}`}>
+        {isNeg ? `-${fmtMoney(Math.abs(value))}` : fmtMoney(value)}
+      </span>
     </div>
   );
 }
