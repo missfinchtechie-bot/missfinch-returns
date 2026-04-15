@@ -769,6 +769,7 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
   role: Role; influencer: Influencer; onClose: () => void; onRefresh: () => void; flash: (m: string) => void;
 }) {
   const isAdmin = role === 'admin';
+  const [profileEdit, setProfileEdit] = useState(false);
   const [notes, setNotes] = useState<NoteRow[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [showActivity, setShowActivity] = useState(false);
@@ -966,8 +967,25 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
                 </div>
               )}
             </div>
-            <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">✕</button>
+            <div className="flex flex-col gap-1 items-end">
+              <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">✕</button>
+              <button onClick={() => setProfileEdit(v => !v)}
+                className="text-[10px] uppercase tracking-wider font-semibold px-2 py-1 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]">
+                {profileEdit ? 'Done' : '✎ Edit'}
+              </button>
+            </div>
           </div>
+
+          {/* Inline editor */}
+          {profileEdit && (
+            <ProfileEditor influencer={influencer}
+              onSave={async (fields) => {
+                const ok = await act('update_fields', fields);
+                if (ok) flash('Saved');
+                return ok;
+              }}
+              onClose={() => setProfileEdit(false)} />
+          )}
 
           {/* Declined banner */}
           {s === 'declined' && influencer.declined_reason && (
@@ -1537,6 +1555,161 @@ function ShippingAddressEditor({ influencer, readonly, onSave }: {
           className="w-full py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-sm font-semibold disabled:opacity-50">
           {saving ? 'Saving…' : 'Save Address'}
         </button>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Profile Editor ─── */
+
+function ProfileEditor({ influencer, onSave, onClose }: {
+  influencer: Influencer;
+  onSave: (fields: Record<string, unknown>) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const [followers, setFollowers] = useState(influencer.follower_count?.toString() || '');
+  const [engagement, setEngagement] = useState(influencer.engagement_rate?.toString() || '');
+  const [niches, setNiches] = useState<string[]>(influencer.niche_tags || []);
+  const [contentTypes, setContentTypes] = useState<string[]>(influencer.content_types || []);
+  const [bio, setBio] = useState(influencer.bio_notes || '');
+  const [dm, setDm] = useState(influencer.dm_context || '');
+  const [profileUrl, setProfileUrl] = useState(influencer.profile_url || '');
+  const [alreadyContacted, setAlreadyContacted] = useState(!!influencer.already_contacted);
+  const [products, setProducts] = useState<Product[]>(influencer.products_to_send || []);
+  const [dealType, setDealType] = useState(influencer.deal_type || '');
+  const [payment, setPayment] = useState(influencer.payment_amount?.toString() || '0');
+  const [deliverables, setDeliverables] = useState(influencer.deliverables || '');
+  const [expectedDate, setExpectedDate] = useState(influencer.expected_post_date || '');
+  const [discountCode, setDiscountCode] = useState(influencer.discount_code || '');
+  const [special, setSpecial] = useState(influencer.special_instructions || '');
+  const [saving, setSaving] = useState(false);
+
+  const toggle = (arr: string[], set: (v: string[]) => void, v: string) => {
+    set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const ok = await onSave({
+      follower_count: followers ? parseInt(followers) : null,
+      engagement_rate: engagement ? parseFloat(engagement) : null,
+      niche_tags: niches,
+      content_types: contentTypes,
+      bio_notes: bio || null,
+      dm_context: dm || null,
+      profile_url: profileUrl || null,
+      already_contacted: alreadyContacted,
+      products_to_send: products,
+      deal_type: dealType || null,
+      payment_amount: parseFloat(payment) || 0,
+      deliverables: deliverables || null,
+      expected_post_date: expectedDate || null,
+      discount_code: discountCode || null,
+      special_instructions: special || null,
+    });
+    setSaving(false);
+    if (ok) onClose();
+  };
+
+  return (
+    <section className="border-2 border-sky-200 bg-sky-50/30 rounded-xl p-4 space-y-3">
+      <div className="text-[11px] uppercase tracking-wider font-semibold text-sky-700">Edit Profile</div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Followers">
+          <input type="number" value={followers} onChange={e => setFollowers(e.target.value)}
+            className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" />
+        </Field>
+        <Field label="Engagement %">
+          <input type="number" step="0.1" value={engagement} onChange={e => setEngagement(e.target.value)}
+            className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" />
+        </Field>
+      </div>
+
+      <Field label="Profile URL">
+        <input value={profileUrl} onChange={e => setProfileUrl(e.target.value)}
+          className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" />
+      </Field>
+
+      <Field label="Niches">
+        <div className="flex flex-wrap gap-2">
+          {NICHES.map(n => (
+            <button key={n} type="button" onClick={() => toggle(niches, setNiches, n)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${niches.includes(n) ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]' : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)]'}`}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Content Types">
+        <div className="flex flex-wrap gap-2">
+          {CONTENT_TYPES.map(c => (
+            <button key={c} type="button" onClick={() => toggle(contentTypes, setContentTypes, c)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${contentTypes.includes(c) ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]' : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)]'}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Why this influencer?">
+        <textarea value={bio} onChange={e => setBio(e.target.value)} rows={3}
+          className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm resize-y" />
+      </Field>
+
+      <Field label="DM context">
+        <textarea value={dm} onChange={e => setDm(e.target.value)} rows={3}
+          className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm resize-y" />
+      </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={alreadyContacted} onChange={e => setAlreadyContacted(e.target.checked)} />
+        Ryan may have already contacted
+      </label>
+
+      <Field label="Products"><ProductPicker products={products} setProducts={setProducts} /></Field>
+
+      <div className="border-t border-[var(--border)] pt-3 space-y-3">
+        <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">Deal Terms</div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Deal Type">
+            <select value={dealType} onChange={e => setDealType(e.target.value)}
+              className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm">
+              <option value="">—</option>
+              <option value="gifted_only">Gifted only</option>
+              <option value="gifted_paid">Gifted + paid</option>
+              <option value="paid_only">Paid only</option>
+              <option value="affiliate">Affiliate</option>
+            </select>
+          </Field>
+          <Field label="Payment ($)">
+            <input type="number" value={payment} onChange={e => setPayment(e.target.value)}
+              className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" />
+          </Field>
+        </div>
+        <Field label="Deliverables">
+          <textarea value={deliverables} onChange={e => setDeliverables(e.target.value)} rows={2}
+            className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm resize-y" />
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Expected post"><input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)}
+            className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+          <Field label="Discount code"><input value={discountCode} onChange={e => setDiscountCode(e.target.value)}
+            className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+        </div>
+        <Field label="Special instructions">
+          <textarea value={special} onChange={e => setSpecial(e.target.value)} rows={2}
+            className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm resize-y" />
+        </Field>
+      </div>
+
+      <div className="flex gap-2 pt-2">
+        <button onClick={save} disabled={saving}
+          className="flex-1 py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-sm font-semibold disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+        <button onClick={onClose} className="px-4 py-2.5 text-sm text-[var(--muted-foreground)]">Cancel</button>
       </div>
     </section>
   );
