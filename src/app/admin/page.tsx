@@ -14,7 +14,7 @@ type Return = {
   label_url: string | null; customer_shipped: string | null; label_sent: string | null;
 };
 
-type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; lost: number; pendingRefund: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number };
+type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; lost: number; pendingRefund: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number; backlogOwed: number; totalOwed: number; processedThisMonth: number; processedThisMonthValue: number };
 
 const TABS = [
   { key: 'all', label: 'All', icon: '☰' },
@@ -87,7 +87,7 @@ export default function AdminDashboard() {
   const [pwErr, setPwErr] = useState('');
   const [tab, setTab] = useState('inbox');
   const [returns, setReturns] = useState<Return[]>([]);
-  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0, lost: 0, pendingRefund: 0, pendingCredit: 0, inTransitValue: 0, processedThisWeek: 0 });
+  const [stats, setStats] = useState<Stats>({ inbox: 0, shipping: 0, old: 0, done: 0, flagged: 0, all: 0, lost: 0, pendingRefund: 0, pendingCredit: 0, inTransitValue: 0, processedThisWeek: 0, backlogOwed: 0, totalOwed: 0, processedThisMonth: 0, processedThisMonthValue: 0 });
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Return | null>(null);
   const [loading, setLoading] = useState(true);
@@ -296,26 +296,31 @@ export default function AdminDashboard() {
       {/* ─── Stats Cards ─── */}
       <div className="bg-[var(--card)] border-b border-[var(--border)]">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="bg-red-50/60 border border-red-200/70 rounded-xl px-4 py-3.5 shadow-sm">
+              <div className="text-[10px] text-red-700 uppercase tracking-wider font-semibold">Total Owed</div>
+              <div className="text-xl font-bold text-red-700 font-heading mt-0.5">${stats.totalOwed.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+              <div className="text-[11px] text-red-600/80 mt-0.5">inbox + backlog liability</div>
+            </div>
             <div className="bg-amber-50/80 border border-amber-200/60 rounded-xl px-4 py-3.5 shadow-sm">
               <div className="text-[10px] text-amber-600 uppercase tracking-wider font-semibold">Pending Refunds</div>
-              <div className="text-xl font-bold text-amber-800 font-heading mt-0.5">${stats.pendingRefund.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
-              <div className="text-[11px] text-amber-600/80 mt-0.5">{stats.inbox} return{stats.inbox !== 1 ? 's' : ''} waiting</div>
+              <div className="text-xl font-bold text-amber-800 font-heading mt-0.5">${stats.pendingRefund.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+              <div className="text-[11px] text-amber-600/80 mt-0.5">{stats.inbox} inbox waiting</div>
             </div>
             <div className="bg-emerald-50/80 border border-emerald-200/60 rounded-xl px-4 py-3.5 shadow-sm">
               <div className="text-[10px] text-emerald-600 uppercase tracking-wider font-semibold">Pending Credits</div>
-              <div className="text-xl font-bold text-emerald-800 font-heading mt-0.5">${stats.pendingCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+              <div className="text-xl font-bold text-emerald-800 font-heading mt-0.5">${stats.pendingCredit.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
               <div className="text-[11px] text-emerald-600/80 mt-0.5">store credit / exchange</div>
             </div>
             <div className="bg-sky-50/80 border border-sky-200/60 rounded-xl px-4 py-3.5 shadow-sm">
               <div className="text-[10px] text-sky-600 uppercase tracking-wider font-semibold">In Transit</div>
-              <div className="text-xl font-bold text-sky-800 font-heading mt-0.5">${stats.inTransitValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
-              <div className="text-[11px] text-sky-600/80 mt-0.5">{stats.shipping} return{stats.shipping !== 1 ? 's' : ''} shipping</div>
+              <div className="text-xl font-bold text-sky-800 font-heading mt-0.5">${stats.inTransitValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+              <div className="text-[11px] text-sky-600/80 mt-0.5">{stats.shipping} shipping</div>
             </div>
             <div className="bg-[var(--muted)] border border-[var(--border)] rounded-xl px-4 py-3.5 shadow-sm">
-              <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">This Week</div>
-              <div className="text-xl font-bold text-[var(--foreground)] font-heading mt-0.5">{stats.processedThisWeek}</div>
-              <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">processed in 7 days</div>
+              <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Processed (Month)</div>
+              <div className="text-xl font-bold text-[var(--foreground)] font-heading mt-0.5">{stats.processedThisMonth}</div>
+              <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">${stats.processedThisMonthValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} paid out</div>
             </div>
           </div>
         </div>

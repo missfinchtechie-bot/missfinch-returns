@@ -7,6 +7,12 @@ import { MetricCard } from '@/components/MetricCard';
 import { Tooltip } from '@/components/Tooltip';
 import { DateRangeSelector, rangeFor, PresetKey } from '@/components/DateRangeSelector';
 
+type MoneyFlow = {
+  cashRefunded: number; creditsIssued: number; rejectedValue: number;
+  feesCollected: number; bonusesGiven: number;
+  totalReturnValue: number; totalPaidOut: number; totalKept: number;
+};
+
 type Summary = {
   grossRevenue: number; netRevenue: number; totalRevenue: number;
   discounts: number; shipping: number; tax: number;
@@ -37,6 +43,7 @@ export default function FinancialsPage() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [data, setData] = useState<OverviewResponse | null>(null);
+  const [money, setMoney] = useState<MoneyFlow | null>(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState('');
@@ -63,8 +70,12 @@ export default function FinancialsPage() {
     setLoading(true);
     try {
       const p = new URLSearchParams({ from: range.from, to: range.to });
-      const res = await fetch(`/api/financials/overview?${p}`);
-      if (res.ok) setData(await res.json());
+      const [ovRes, mfRes] = await Promise.all([
+        fetch(`/api/financials/overview?${p}`),
+        fetch(`/api/returns/money-flow?${p}`),
+      ]);
+      if (ovRes.ok) setData(await ovRes.json());
+      if (mfRes.ok) setMoney(await mfRes.json());
     } finally { setLoading(false); }
   }, [range.from, range.to]);
 
@@ -195,6 +206,27 @@ export default function FinancialsPage() {
                 </div>
               )}
             </section>
+
+            {/* Return Impact */}
+            {money && (
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Return Impact on Revenue</div>
+                  <Tooltip text="Real P&L contribution of returns: what you paid back, what you kept, and what you earned in fees." />
+                </div>
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+                  <PLRow label="Gross Revenue" value={s.grossRevenue} bold formula="SUM(subtotal_price) from shopify_orders in range. Excludes tax, shipping, cancellations, and test orders." />
+                  <PLRow label="Cash Refunded" value={-money.cashRefunded} formula="SUM(final_amount) WHERE outcome='refund'. Falls back to subtotal for records without final_amount." />
+                  <PLRow label="Credits Issued" value={-money.creditsIssued} sub="liability, not cash out" formula="SUM(final_amount) WHERE outcome='credit'. Not cash, but gift card liability to customers." />
+                  <div className="border-t border-[var(--border)]" />
+                  <PLRow label="Net Revenue After Returns" value={s.grossRevenue - money.cashRefunded - money.creditsIssued} bold formula="Gross − Cash Refunded − Credits Issued." />
+                  <PLRow label="Restocking Fees Earned" value={money.feesCollected} formula="SUM(total_fees) WHERE outcome='refund'. Falls back to subtotal − final_amount for older records. 5% on refunds." />
+                  <PLRow label="Rejected Returns (kept)" value={money.rejectedValue} sub={`revenue you didn't have to give back`} formula="SUM(subtotal) WHERE outcome='rejected'. Money retained when a return was denied." />
+                  <div className="border-t-2 border-[var(--foreground)]/20" />
+                  <PLRow label="Adjusted Net After Returns" value={s.grossRevenue - money.cashRefunded - money.creditsIssued + money.feesCollected} bold accent formula="Net Revenue After Returns + Restocking Fees. Real top-line after all return flows." />
+                </div>
+              </section>
+            )}
 
             {/* Ad Spend (mock) */}
             <section>

@@ -30,6 +30,20 @@ export async function GET(req: NextRequest) {
   const pendingRefund = (inboxReturns || []).filter(r => r.type === 'refund').reduce((s, r) => s + (r.subtotal || 0), 0);
   const pendingCredit = (inboxReturns || []).filter(r => r.type !== 'refund').reduce((s, r) => s + (r.subtotal || 0), 0);
 
+  const { data: backlogReturns } = await withRange(
+    supabase.from('returns').select('subtotal').eq('status', 'old')
+  );
+  const backlogOwed = (backlogReturns || []).reduce((s, r) => s + (r.subtotal || 0), 0);
+
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+  const { data: processedMonthRows, count: processedThisMonth } = await supabase
+    .from('returns').select('final_amount, subtotal, outcome', { count: 'exact' })
+    .eq('status', 'done').gte('processed_at', monthStart);
+  const processedThisMonthValue = (processedMonthRows || []).reduce((s, r) => {
+    if (r.outcome === 'rejected' || r.outcome === 'lost') return s;
+    return s + ((r.final_amount && r.final_amount > 0) ? Number(r.final_amount) : Number(r.subtotal || 0));
+  }, 0);
+
   // Processed this week is always based on the last 7 days, regardless of date filter
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
   const { count: processedThisWeek } = await supabase
@@ -53,5 +67,9 @@ export async function GET(req: NextRequest) {
     pendingCredit,
     inTransitValue,
     processedThisWeek: processedThisWeek || 0,
+    backlogOwed,
+    totalOwed: pendingRefund + pendingCredit + backlogOwed,
+    processedThisMonth: processedThisMonth || 0,
+    processedThisMonthValue,
   });
 }

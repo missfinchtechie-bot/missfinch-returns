@@ -7,6 +7,16 @@ import { MetricCard } from '@/components/MetricCard';
 import { Tooltip } from '@/components/Tooltip';
 import { DateRangeSelector, rangeFor, PresetKey } from '@/components/DateRangeSelector';
 
+type MoneyFlow = {
+  cashRefunded: number; creditsIssued: number; rejectedValue: number;
+  feesCollected: number; bonusesGiven: number;
+  pendingRefunds: number; pendingCredits: number; backlogOwed: number;
+  inTransitValue: number; lostValue: number;
+  totalReturnValue: number; totalPaidOut: number; totalKept: number; totalPending: number;
+  legacyRefundsNoAmount: number; legacyCreditsNoAmount: number;
+  counts: { refund: number; credit: number; rejected: number; lost: number; inbox: number; shipping: number; old: number };
+};
+
 type Analytics = {
   overview: {
     totalReturns: number; totalValue: number; avgValue: number; avgValueExcZero: number;
@@ -31,6 +41,7 @@ export default function AnalyticsPage() {
   const [pw, setPw] = useState('');
   const [pwErr, setPwErr] = useState('');
   const [data, setData] = useState<Analytics | null>(null);
+  const [money, setMoney] = useState<MoneyFlow | null>(null);
   const [loading, setLoading] = useState(true);
   const [preset, setPreset] = useState<PresetKey>('all');
   const [customFrom, setCustomFrom] = useState('');
@@ -50,8 +61,12 @@ export default function AnalyticsPage() {
     const p = new URLSearchParams();
     if (range) { p.set('from', range.from); p.set('to', range.to); }
     try {
-      const res = await fetch(`/api/returns/analytics?${p}`);
-      if (res.ok) setData(await res.json());
+      const [a, m] = await Promise.all([
+        fetch(`/api/returns/analytics?${p}`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/returns/money-flow?${p}`).then(r => r.ok ? r.json() : null),
+      ]);
+      if (a) setData(a);
+      if (m) setMoney(m);
     } finally { setLoading(false); }
   }, [range]);
 
@@ -87,14 +102,14 @@ export default function AnalyticsPage() {
         {loading || !data ? (
           <div className="text-center py-20 text-[var(--muted-foreground)]">Loading analytics…</div>
         ) : (
-          <AnalyticsContent data={data} />
+          <AnalyticsContent data={data} money={money} />
         )}
       </main>
     </div>
   );
 }
 
-function AnalyticsContent({ data }: { data: Analytics }) {
+function AnalyticsContent({ data, money }: { data: Analytics; money: MoneyFlow | null }) {
   const o = data.overview;
   const doneTotal = (o.totalRefunded || 0) + (o.totalCredited || 0) + (o.totalRejected || 0) + (o.totalLost || 0);
   const maxDow = Math.max(1, ...data.dayOfWeek.map(d => d.count));
@@ -144,6 +159,8 @@ function AnalyticsContent({ data }: { data: Analytics }) {
         <MetricCard label="Lost" value={fmtMoney(o.totalLost)} sub={`${data.outcomeCounts.lost || 0} returns`} accent="purple"
           formula={`SUM(subtotal) WHERE outcome='lost'. Auto-marked: in transit 45+ days with no delivery.`} />
       </section>
+
+      {money && <MoneyFlowSection m={money} />}
 
       {/* Monthly Trend */}
       <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
@@ -280,5 +297,85 @@ function AnalyticsContent({ data }: { data: Analytics }) {
         </div>
       </section>
     </>
+  );
+}
+
+function MoneyFlowSection({ m }: { m: MoneyFlow }) {
+  const total = m.totalReturnValue || 1;
+  const pct = (n: number) => `${((n / total) * 100).toFixed(1)}%`;
+
+  const rows: { label: string; value: number; tone: 'red' | 'green' | 'amber' | 'purple' | 'muted'; formula: string; indent?: boolean }[] = [
+    { label: 'Paid Out', value: m.totalPaidOut, tone: 'red', formula: 'cashRefunded + creditsIssued. Money that left your Shopify (refunds) or became liability (credits).' },
+    { label: 'Cash Refunded', value: m.cashRefunded, tone: 'red', indent: true, formula: 'SUM(final_amount) WHERE outcome=refund. Falls back to subtotal for pre-Apr 2026 records without final_amount.' },
+    { label: 'Credits Issued', value: m.creditsIssued, tone: 'red', indent: true, formula: 'SUM(final_amount) WHERE outcome=credit. Gift cards issued to customers. Still your liability.' },
+    { label: 'Kept', value: m.totalKept, tone: 'green', formula: 'rejectedValue + feesCollected. Revenue you didn\'t have to return.' },
+    { label: 'Rejected Returns', value: m.rejectedValue, tone: 'green', indent: true, formula: `SUM(subtotal) WHERE outcome=rejected. ${m.counts.rejected} returns denied — money stays with you.` },
+    { label: 'Restocking Fees', value: m.feesCollected, tone: 'green', indent: true, formula: 'SUM(total_fees) WHERE outcome=refund. For older records falls back to (subtotal − final_amount). 5% on refunds.' },
+    { label: 'Pending', value: m.totalPending, tone: 'amber', formula: 'pendingRefunds + pendingCredits + backlogOwed. Money you still might owe.' },
+    { label: 'Action Needed (inbox)', value: m.pendingRefunds + m.pendingCredits, tone: 'amber', indent: true, formula: `SUM(subtotal) WHERE status=inbox. ${m.counts.inbox} returns delivered and ready to process.` },
+    { label: 'Backlog (30+ days)', value: m.backlogOwed, tone: 'amber', indent: true, formula: `SUM(subtotal) WHERE status=old. ${m.counts.old} stale returns that should have been processed.` },
+    { label: 'In Transit', value: m.inTransitValue, tone: 'amber', indent: true, formula: `SUM(subtotal) WHERE status=shipping. ${m.counts.shipping} packages on the way back to you.` },
+    { label: 'Lost', value: m.lostValue, tone: 'purple', formula: `SUM(subtotal) WHERE outcome=lost. ${m.counts.lost} auto-marked after 45+ days in transit with no delivery.` },
+  ];
+
+  const toneCls = (t: 'red' | 'green' | 'amber' | 'purple' | 'muted'): string => ({
+    red: 'text-red-600',
+    green: 'text-emerald-600',
+    amber: 'text-amber-700',
+    purple: 'text-purple-600',
+    muted: 'text-[var(--muted-foreground)]',
+  }[t]);
+
+  const barCls = (t: 'red' | 'green' | 'amber' | 'purple' | 'muted'): string => ({
+    red: 'bg-red-400',
+    green: 'bg-emerald-400',
+    amber: 'bg-amber-400',
+    purple: 'bg-purple-400',
+    muted: 'bg-stone-300',
+  }[t]);
+
+  const fmt = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+  return (
+    <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center">
+          <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Money Flow</h3>
+          <Tooltip text="Where every dollar of return value actually goes: paid back to customers, kept by you, still pending, or lost." />
+        </div>
+        <div className="text-xs text-[var(--muted-foreground)]">
+          Total Return Value: <span className="font-semibold text-[var(--foreground)]">{fmt(m.totalReturnValue)}</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {rows.map((r, i) => {
+          const p = (r.value / total) * 100;
+          return (
+            <div key={i} className={`flex items-center gap-3 py-2 ${r.indent ? 'pl-6' : 'border-t border-[var(--border)] first:border-t-0 pt-3'}`}>
+              <div className={`text-sm flex-shrink-0 ${r.indent ? 'w-44' : 'w-44 font-semibold'} text-[var(--foreground)] flex items-center`}>
+                {r.label}
+                <Tooltip text={r.formula} />
+              </div>
+              <div className="flex-1 h-2 bg-[var(--muted)] rounded-full overflow-hidden min-w-[60px]">
+                <div className={`h-full ${barCls(r.tone)} rounded-full transition-all`} style={{ width: `${Math.min(100, p)}%` }} />
+              </div>
+              <div className={`text-sm font-semibold ${toneCls(r.tone)} w-28 text-right tabular-nums`}>
+                {fmt(r.value)}
+              </div>
+              <div className="text-[11px] text-[var(--muted-foreground)] w-14 text-right tabular-nums">{pct(r.value)}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {(m.legacyRefundsNoAmount > 0 || m.legacyCreditsNoAmount > 0) && (
+        <div className="mt-4 text-[11px] text-amber-700 bg-amber-50/50 border border-amber-200/60 rounded-lg px-3 py-2">
+          <b>Data note:</b> {m.legacyRefundsNoAmount} refunds and {m.legacyCreditsNoAmount} credits have no final_amount recorded
+          (pre-April 2026, before the fee engine was wired up). Subtotal is used as the estimate for those — fees and bonuses
+          will be under-counted for older returns.
+        </div>
+      )}
+    </section>
   );
 }
