@@ -507,9 +507,11 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
   const [order, setOrder] = useState<OrderData | null>(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [history, setHistory] = useState<CustomerHistory | null>(null);
+  const [returnItems, setReturnItems] = useState<{ id: string; title: string; variant: string; sku: string; quantity: number; price: number; image: string | null }[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const [showFullOrder, setShowFullOrder] = useState(false);
 
   // Editable fields
   const [editingValue, setEditingValue] = useState(false);
@@ -530,6 +532,7 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
 
   useEffect(() => {
     setLoadingOrder(true);
+    setShowFullOrder(false);
     if (r.order_number) {
       fetch(`/api/returns/order?order_number=${encodeURIComponent(r.order_number)}`)
         .then(res => res.json()).then(d => { if (!d.error) setOrder(d); })
@@ -539,6 +542,8 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
       .then(res => res.json()).then(d => { if (!d.error) setHistory(d); }).catch(() => {});
     fetch(`/api/returns/notes?return_id=${r.id}`)
       .then(res => res.json()).then(d => setNotes(d.notes || [])).catch(() => {});
+    fetch(`/api/returns/items?return_id=${r.id}`)
+      .then(res => res.json()).then(d => setReturnItems(d.items || [])).catch(() => {});
   }, [r.id, r.order_number, r.customer_name]);
 
   const saveNote = async () => {
@@ -667,27 +672,73 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         {daysToReturn !== null && daysToReturn >= 0 && <div className="text-xs text-[var(--muted-foreground)]">Returned {daysToReturn} day{daysToReturn !== 1 ? 's' : ''} after delivery {withinWindow !== null && daysInWindow !== null && daysInWindow >= 0 && <span className={withinWindow ? 'text-emerald-500' : 'text-red-500'}>({withinWindow ? `within ${returnWindowDays}d window` : `day ${daysInWindow} — expired`})</span>}</div>}
       </div>
 
-      {/* ── Return Items ── */}
+      {/* ── Returned Items ── */}
       <div className="mb-4">
-        <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider mb-2 font-semibold">Return Items</div>
+        <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider mb-2 font-semibold">
+          Returned Items ({r.item_count} of {order?.lineItems?.reduce((s, i) => s + i.quantity, 0) || '?'})
+        </div>
         {loadingOrder ? <div className="text-xs text-[var(--muted-foreground)] py-4 text-center">Loading...</div> : (
-          <div className="space-y-2">
-            {(order?.lineItems || []).map((item, i) => (
-              <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3">
-                <div className="flex gap-3">
-                  {item.image && <img src={item.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-[var(--muted)]" />}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-[var(--foreground)]">{item.title}</div>
-                    <div className="text-xs text-[var(--muted-foreground)] mt-0.5">{item.variant}{item.sku ? ` · ${item.sku}` : ''}</div>
+          <>
+            {/* Show return_items if available (new returns), otherwise show note */}
+            {returnItems.length > 0 ? (
+              <div className="space-y-2">
+                {returnItems.map((item, i) => (
+                  <div key={i} className="bg-amber-50/50 border border-amber-200/60 rounded-xl p-3">
+                    <div className="flex gap-3">
+                      {item.image && <img src={item.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-[var(--muted)]" />}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-[var(--foreground)]">{item.title}</div>
+                        <div className="text-xs text-[var(--muted-foreground)] mt-0.5">{item.variant}{item.sku ? ` · ${item.sku}` : ''}{item.quantity > 1 ? ` · Qty ${item.quantity}` : ''}</div>
+                      </div>
+                      <div className="text-sm font-semibold text-[var(--foreground)] flex-shrink-0">${(item.price || 0).toFixed(2)}</div>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1">
-                  <div className="flex justify-between text-xs"><span className="text-[var(--muted-foreground)]">Retail</span><span className="text-[var(--foreground)]">${parseFloat(item.retailPrice).toFixed(2)}</span></div>
-                  {parseFloat(item.discount) > 0 && <div className="flex justify-between text-xs"><span className="text-[var(--muted-foreground)]">Discount</span><span className="text-red-500">-${parseFloat(item.discount).toFixed(2)}</span></div>}
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
+            ) : (
+              /* Fallback for legacy Redo imports — no return_items data */
+              <div className="text-xs text-[var(--muted-foreground)] bg-[var(--muted)] rounded-xl p-3 text-center">
+                Specific return items not recorded (Redo import). {r.item_count} item{r.item_count !== 1 ? 's' : ''} returned — see full order below.
+              </div>
+            )}
+
+            {/* Full Order — collapsible */}
+            {order?.lineItems && order.lineItems.length > 0 && (
+              <div className="mt-2 border border-[var(--border)] rounded-xl overflow-hidden">
+                <button onClick={() => setShowFullOrder(!showFullOrder)}
+                  className="w-full px-3 py-2 bg-[var(--muted)] text-[11px] text-[var(--muted-foreground)] font-semibold uppercase tracking-wider text-left hover:bg-[var(--accent)] flex justify-between items-center transition-colors">
+                  <span>Full Order ({order.lineItems.reduce((s, i) => s + i.quantity, 0)} items · ${parseFloat(order.total || '0').toFixed(2)})</span>
+                  <span>{showFullOrder ? '▲' : '▼'}</span>
+                </button>
+                {showFullOrder && (
+                  <div className="divide-y divide-[var(--border)]">
+                    {order.lineItems.map((item, i) => {
+                      // Check if this item is in the returned items list
+                      const isReturned = returnItems.some(ri => 
+                        ri.title === item.title || ri.sku === item.sku
+                      );
+                      return (
+                        <div key={i} className={`p-3 flex gap-3 ${isReturned ? 'bg-amber-50/30' : ''}`}>
+                          {item.image && <img src={item.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-[var(--muted)]" />}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-[var(--foreground)]">{item.title}</span>
+                              {isReturned && <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">RETURNED</span>}
+                            </div>
+                            <div className="text-xs text-[var(--muted-foreground)]">{item.variant}{item.sku ? ` · ${item.sku}` : ''} · Qty {item.quantity}</div>
+                          </div>
+                          <div className="text-xs text-[var(--foreground)] flex-shrink-0">
+                            ${parseFloat(item.retailPrice).toFixed(2)}
+                            {parseFloat(item.discount) > 0 && <span className="text-red-500 ml-1">-${parseFloat(item.discount).toFixed(2)}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 
