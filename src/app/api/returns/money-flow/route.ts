@@ -41,11 +41,12 @@ export async function GET(req: NextRequest) {
 
   const rejectedValue = sum(rejected, r => num(r.subtotal));
 
-  // Fees: total_fees when set; else derived (subtotal - final_amount) when final_amount > 0
+  // Fees: total_fees when set; else (subtotal - final_amount) when final_amount > 0;
+  // else 5% of subtotal as estimate for pre-April 2026 records
   const feesCollected = sum(refunds, r => {
     if (num(r.total_fees) > 0) return num(r.total_fees);
     if (num(r.final_amount) > 0 && num(r.subtotal) > num(r.final_amount)) return num(r.subtotal) - num(r.final_amount);
-    return 0;
+    return num(r.subtotal) * 0.05;
   });
 
   const bonusesGiven = sum(credits, r => {

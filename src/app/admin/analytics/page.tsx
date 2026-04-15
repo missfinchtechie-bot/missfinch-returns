@@ -43,7 +43,7 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<Analytics | null>(null);
   const [money, setMoney] = useState<MoneyFlow | null>(null);
   const [loading, setLoading] = useState(true);
-  const [preset, setPreset] = useState<PresetKey>('all');
+  const [preset, setPreset] = useState<PresetKey>('month');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 

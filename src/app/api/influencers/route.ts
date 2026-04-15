@@ -90,6 +90,13 @@ export async function PATCH(req: NextRequest) {
     update.status_changed_at = now;
     update.declined_reason = fields.declined_reason;
     logDetails = { reason: fields.declined_reason };
+  } else if (action === 'counter') {
+    // Stays in pending_review but flagged with a counter note (stored in declined_reason for display)
+    if (!fields.counter_note) return NextResponse.json({ error: 'Counter note required' }, { status: 400 });
+    update.status = 'pending_review';
+    update.status_changed_at = now;
+    update.declined_reason = `COUNTER: ${fields.counter_note}`;
+    logDetails = { note: fields.counter_note };
   } else if (action === 'set_deal') {
     update = {
       ...update,

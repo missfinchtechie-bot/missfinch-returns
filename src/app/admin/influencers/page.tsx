@@ -31,6 +31,9 @@ type Influencer = {
   content_urls: string[] | null;
   content_posted_date: string | null;
   content_type_posted: string[] | null;
+  post_reach: number | null;
+  post_impressions: number | null;
+  post_engagement: number | null;
 };
 
 type Product = { title?: string; variantId?: string; price?: number; quantity?: number; sku?: string };
@@ -283,6 +286,7 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
   const [niches, setNiches] = useState<string[]>([]);
   const [content, setContent] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
+  const [askedFor, setAskedFor] = useState('');
   const [alreadyContacted, setAlreadyContacted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showReview, setShowReview] = useState(false);
@@ -322,7 +326,7 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
         engagement_rate: eNum || null,
         niche_tags: niches,
         content_types: content,
-        bio_notes: notes.trim() || null,
+        bio_notes: [notes.trim(), askedFor.trim() ? `\n\n— What they asked for —\n${askedFor.trim()}` : ''].join('') || null,
         already_contacted: alreadyContacted,
         created_by: role,
       }),
@@ -438,6 +442,11 @@ function SubmitForm({ role, onClose, onCreated }: { role: 'admin' | 'intern'; on
               className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:border-[var(--ring)] resize-y" />
           </Field>
 
+          <Field label="What did they ask for? (DM summary)">
+            <textarea value={askedFor} onChange={e => setAskedFor(e.target.value)} rows={3} placeholder="Paste what the influencer requested: specific products, sizes, payment, etc."
+              className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:border-[var(--ring)] resize-y" />
+          </Field>
+
           <label className="flex items-center gap-3 cursor-pointer">
             <input type="checkbox" checked={alreadyContacted} onChange={e => setAlreadyContacted(e.target.checked)} className="w-4 h-4" />
             <span className="text-sm text-[var(--foreground)]">Ryan may have already contacted them</span>
@@ -489,6 +498,7 @@ function GuidelinesPanel() {
           <li>Modest fashion / Orthodox / LDS / hijabi audience alignment</li>
           <li>Active posting within last 30 days</li>
           <li>High-quality content (consistent aesthetic, good lighting)</li>
+          <li><b>Reference:</b> @sophiathejew was a great organic advocate — the kind of authentic voice + aligned audience we want to replicate.</li>
         </ul>
       </div>
       <div>
@@ -531,6 +541,10 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
   const [showDecline, setShowDecline] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
 
+  // Counter
+  const [showCounter, setShowCounter] = useState(false);
+  const [counterNote, setCounterNote] = useState('');
+
   // Deal editor
   const [dealOpen, setDealOpen] = useState(false);
   const [dealType, setDealType] = useState(influencer.deal_type || 'gifted_only');
@@ -548,6 +562,9 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
   const [newContentUrl, setNewContentUrl] = useState('');
   const [postedDate, setPostedDate] = useState(influencer.content_posted_date || new Date().toISOString().slice(0, 10));
   const [contentTypes, setContentTypes] = useState<string[]>(influencer.content_type_posted || []);
+  const [mReach, setMReach] = useState('');
+  const [mImpressions, setMImpressions] = useState('');
+  const [mEngagement, setMEngagement] = useState('');
 
   const loadNotes = useCallback(async () => {
     const r = await fetch(`/api/influencers/notes?influencer_id=${influencer.id}`).then(r => r.json());
@@ -614,6 +631,14 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
       content_type_posted: contentTypes,
       mark_complete: markComplete,
     });
+    // Persist manual metrics if any entered
+    if (mReach || mImpressions || mEngagement) {
+      await act('update_fields', {
+        post_reach: mReach ? parseInt(mReach) : undefined,
+        post_impressions: mImpressions ? parseInt(mImpressions) : undefined,
+        post_engagement: mEngagement ? parseInt(mEngagement) : undefined,
+      });
+    }
     flash(markComplete ? 'Marked complete ✓' : 'Content logged');
     setContentOpen(false);
   };
@@ -669,17 +694,42 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
           {influencer.declined_reason && <div className="text-[11px] text-red-600">Declined: {influencer.declined_reason}</div>}
         </section>
 
+        {/* Counter note badge (if one exists) */}
+        {influencer.declined_reason?.startsWith('COUNTER:') && (
+          <div className="bg-amber-50 border border-amber-200/70 rounded-xl p-3 text-xs text-amber-700">
+            <div className="uppercase tracking-wider font-semibold text-[10px] mb-1">Ryan says (needs revision)</div>
+            {influencer.declined_reason.replace(/^COUNTER:\s*/, '')}
+          </div>
+        )}
+
         {/* Admin actions */}
-        {canApprove && !showDecline && (
-          <div className="flex gap-2">
+        {canApprove && !showDecline && !showCounter && (
+          <div className="grid grid-cols-3 gap-2">
             <button onClick={() => act('approve').then(ok => ok && flash('Approved ✓'))} disabled={busy}
-              className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
+              className="py-3 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
               Approve
             </button>
+            <button onClick={() => setShowCounter(true)} disabled={busy}
+              className="py-3 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
+              Counter
+            </button>
             <button onClick={() => setShowDecline(true)} disabled={busy}
-              className="flex-1 py-3 bg-red-600 text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
+              className="py-3 bg-red-600 text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
               Decline
             </button>
+          </div>
+        )}
+
+        {showCounter && (
+          <div className="space-y-2">
+            <textarea value={counterNote} onChange={e => setCounterNote(e.target.value)} rows={3} placeholder={`e.g. "Limit to 2 items" or "Ask if she'll do a Reel instead of Stories"`}
+              className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+            <div className="flex gap-2">
+              <button onClick={async () => { if (!counterNote.trim()) return; const ok = await act('counter', { counter_note: counterNote }); if (ok) { flash('Sent back for revision'); setShowCounter(false); setCounterNote(''); } }}
+                disabled={!counterNote.trim() || busy}
+                className="flex-1 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50">Send Counter</button>
+              <button onClick={() => { setShowCounter(false); setCounterNote(''); }} className="px-4 py-2.5 text-sm text-[var(--muted-foreground)]">Cancel</button>
+            </div>
           </div>
         )}
 
@@ -813,6 +863,11 @@ function DetailPanel({ role, influencer, onClose, onChange, flash }: {
                     ))}
                   </div>
                 </Field>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Reach"><input type="number" value={mReach} onChange={e => setMReach(e.target.value)} placeholder={String(influencer.post_reach || '')} className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+                  <Field label="Impressions"><input type="number" value={mImpressions} onChange={e => setMImpressions(e.target.value)} placeholder={String(influencer.post_impressions || '')} className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+                  <Field label="Engagement"><input type="number" value={mEngagement} onChange={e => setMEngagement(e.target.value)} placeholder={String(influencer.post_engagement || '')} className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm" /></Field>
+                </div>
                 <div className="flex gap-2">
                   <button onClick={() => logContent(false)} disabled={busy} className="flex-1 py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-sm font-semibold">Save Content</button>
                   <button onClick={() => logContent(true)} disabled={busy} className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold">Mark Complete</button>
