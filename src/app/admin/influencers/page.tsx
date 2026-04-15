@@ -120,9 +120,10 @@ const engagementTone = (e: number | null): string => {
 };
 const igUrl = (handle: string) => `https://instagram.com/${handle.replace(/^@/, '')}`;
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, large }: { status: string; large?: boolean }) {
   const m = STATUS_META[status] || STATUS_META.pending_review;
-  return <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border ${m.bg} ${m.text} ${m.border || ''}`}>{m.label}</span>;
+  const size = large ? 'text-[11px] px-2.5 py-1' : 'text-[10px] px-2 py-0.5';
+  return <span className={`${size} font-semibold rounded-lg border ${m.bg} ${m.text} ${m.border || ''}`}>{m.label}</span>;
 }
 
 /* ─── Main page ─── */
@@ -230,8 +231,8 @@ export default function InfluencersPage() {
               <MetricCard label="Active Deals" value={String(activeCount)} sub="deal + shipped + content pending" accent="sky" formula="deal + shipped + content_pending" />
               <MetricCard label="Content Pending" value={String(contentPending)} sub="product shipped, awaiting post" formula="shipped + content_pending" />
               <MetricCard label="Watchlist" value={String(watchlistCount)} sub="tracking, not outreached" accent="purple" formula="COUNT status='watchlist'" />
-              <MetricCard label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalInfluencers || 0} total records`} formula="SUM(products_to_send price × qty) all time where shipped+" />
-              <MetricCard label="Posts Received" value={String(stats?.thisMonth.posts || 0)} sub="this month" formula="COUNT content_posted_date in current month" />
+              <div className="hidden sm:block"><MetricCard label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalInfluencers || 0} total records`} formula="SUM(products_to_send price × qty) all time where shipped+" /></div>
+              <div className="hidden sm:block"><MetricCard label="Posts Received" value={String(stats?.thisMonth.posts || 0)} sub="this month" formula="COUNT content_posted_date in current month" /></div>
             </div>
           </section>
         )}
@@ -335,7 +336,7 @@ export default function InfluencersPage() {
                         <span className={`font-semibold ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate ? `${r.engagement_rate}%` : '—'}</span>
                       </div>
                     </div>
-                    <StatusBadge status={r.status} />
+                    <StatusBadge status={r.status} large />
                   </div>
                   <div className="text-[10px] text-[var(--muted-foreground)]">{fmtDate(r.created_at)} · via {r.created_by}</div>
                 </div>
@@ -962,6 +963,8 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
             </section>
           )}
 
+          <div className="border-t border-[var(--border)]" />
+
           {/* Profile & Vetting */}
           <section className="bg-[var(--muted)]/50 rounded-xl p-4 space-y-2">
             <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Vetting Info</div>
@@ -1017,14 +1020,18 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
                 {isAdmin && <button onClick={() => setDealOpen(v => !v)} className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">{dealOpen ? 'Close' : 'Edit'}</button>}
               </div>
               {!dealOpen ? (
-                <div className="text-sm space-y-1">
-                  <div><span className="text-[var(--muted-foreground)]">Type:</span> {influencer.deal_type || '—'}</div>
-                  <div><span className="text-[var(--muted-foreground)]">Payment:</span> {fmtMoney(influencer.payment_amount || 0)}</div>
-                  <div><span className="text-[var(--muted-foreground)]">Deliverables:</span> {influencer.deliverables || '—'}</div>
-                  <div><span className="text-[var(--muted-foreground)]">Expected post:</span> {fmtDate(influencer.expected_post_date)}</div>
-                  {influencer.discount_code && <div><span className="text-[var(--muted-foreground)]">Code:</span> {influencer.discount_code}</div>}
-                  {influencer.special_instructions && <div><span className="text-[var(--muted-foreground)]">Notes:</span> {influencer.special_instructions}</div>}
-                </div>
+                !influencer.deal_type && !influencer.deliverables && !influencer.expected_post_date && !influencer.payment_amount ? (
+                  <div className="text-xs text-[var(--muted-foreground)] italic">Deal terms not set yet{isAdmin ? ' — click Edit to configure.' : '.'}</div>
+                ) : (
+                  <div className="text-sm space-y-1">
+                    <div><span className="text-[var(--muted-foreground)]">Type:</span> {influencer.deal_type || '—'}</div>
+                    <div><span className="text-[var(--muted-foreground)]">Payment:</span> {fmtMoney(influencer.payment_amount || 0)}</div>
+                    <div><span className="text-[var(--muted-foreground)]">Deliverables:</span> {influencer.deliverables || '—'}</div>
+                    <div><span className="text-[var(--muted-foreground)]">Expected post:</span> {fmtDate(influencer.expected_post_date)}</div>
+                    {influencer.discount_code && <div><span className="text-[var(--muted-foreground)]">Code:</span> {influencer.discount_code}</div>}
+                    {influencer.special_instructions && <div><span className="text-[var(--muted-foreground)]">Notes:</span> {influencer.special_instructions}</div>}
+                  </div>
+                )
               ) : (
                 <div className="space-y-3">
                   <Field label="Deal Type">
@@ -1143,7 +1150,7 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
             <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Notes</div>
             <div className="space-y-3 mb-3 max-h-64 overflow-y-auto">
               {notes.length === 0 ? (
-                <div className="text-xs text-[var(--muted-foreground)] italic">No notes yet</div>
+                <div className="text-xs text-[var(--muted-foreground)] italic">No notes yet — add one below</div>
               ) : notes.map(n => (
                 <div key={n.id} className="text-sm">
                   <div className="flex items-center gap-2 mb-0.5">
