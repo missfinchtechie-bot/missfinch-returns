@@ -38,14 +38,15 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     instagram_handle, profile_url, follower_count, engagement_rate,
-    niche_tags, content_types, bio_notes, already_contacted,
-    products_to_send,
-    created_by = 'intern',
+    niche_tags, content_types, bio_notes, dm_context, already_contacted,
+    products_to_send, scraped_data, scraped_at,
+    status, created_by = 'intern',
   } = body;
 
   if (!instagram_handle) return NextResponse.json({ error: 'Handle required' }, { status: 400 });
 
   const handle = instagram_handle.startsWith('@') ? instagram_handle : `@${instagram_handle}`;
+  const newStatus = status === 'watchlist' ? 'watchlist' : 'pending_review';
 
   const { data, error } = await supabase.from('influencers').insert({
     instagram_handle: handle,
@@ -55,10 +56,13 @@ export async function POST(req: NextRequest) {
     niche_tags: niche_tags || [],
     content_types: content_types || [],
     bio_notes: bio_notes || null,
+    dm_context: dm_context || null,
     already_contacted: !!already_contacted,
     products_to_send: products_to_send || [],
+    scraped_data: scraped_data || null,
+    scraped_at: scraped_at || null,
     created_by,
-    status: 'pending_review',
+    status: newStatus,
   }).select().single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -115,13 +119,24 @@ export async function PATCH(req: NextRequest) {
     if (!fields.counter_note) return NextResponse.json({ error: 'Counter note required' }, { status: 400 });
     update.status = 'countered';
     update.status_changed_at = now;
+    update.counter_note = fields.counter_note;
     update.declined_reason = fields.counter_note;
     logDetails = { note: fields.counter_note };
+  } else if (action === 'add_to_watchlist') {
+    update.status = 'watchlist';
+    update.status_changed_at = now;
+  } else if (action === 'move_to_pending') {
+    update.status = 'pending_review';
+    update.status_changed_at = now;
+  } else if (action === 'mark_complete') {
+    update.status = 'complete';
+    update.status_changed_at = now;
   } else if (action === 'resubmit') {
     update.status = 'pending_review';
     update.status_changed_at = now;
     update.declined_reason = null;
-    const editable = ['follower_count', 'engagement_rate', 'niche_tags', 'content_types', 'bio_notes', 'products_to_send'];
+    update.counter_note = null;
+    const editable = ['follower_count', 'engagement_rate', 'niche_tags', 'content_types', 'bio_notes', 'dm_context', 'products_to_send'];
     for (const k of editable) if (fields[k] !== undefined) update[k] = fields[k];
   } else if (action === 'mark_content_pending') {
     update.status = 'content_pending';
@@ -155,7 +170,8 @@ export async function PATCH(req: NextRequest) {
   } else if (action === 'update_fields') {
     const editable = [
       'follower_count', 'engagement_rate', 'niche_tags', 'content_types',
-      'bio_notes', 'already_contacted', 'profile_url',
+      'bio_notes', 'dm_context', 'already_contacted', 'profile_url',
+      'products_to_send', 'scraped_data', 'scraped_at',
       'post_reach', 'post_impressions', 'post_engagement', 'post_shares', 'post_video_views',
     ];
     for (const k of editable) if (fields[k] !== undefined) update[k] = fields[k];
