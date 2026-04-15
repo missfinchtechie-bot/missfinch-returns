@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 
 type Analytics = {
   overview: {
-    totalReturns: number; totalValue: number; avgValue: number;
-    rejectionRate: number; avgItemsPerReturn: number;
+    totalReturns: number; totalValue: number; avgValue: number; avgValueExcZero: number;
+    rejectionRate: number; avgItemsPerReturn: number; zeroValueCount: number;
     last30Days: number; prior30Days: number; trend: number;
+    totalRefunded: number; totalCredited: number; totalRejected: number; totalLost: number;
   };
   statusCounts: Record<string, number>;
   outcomeCounts: Record<string, number>;
@@ -17,6 +18,18 @@ type Analytics = {
 };
 
 const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+function Tooltip({ text }: { text: string }) {
+  return (
+    <div className="group relative inline-block ml-1 cursor-help">
+      <span className="text-[10px] text-[var(--muted-foreground)]/60 hover:text-[var(--muted-foreground)] transition-colors">ⓘ</span>
+      <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-[var(--foreground)] text-[var(--background)] text-[11px] px-3 py-2 rounded-lg shadow-xl z-50 leading-relaxed whitespace-normal">
+        {text}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-[var(--foreground)]" />
+      </div>
+    </div>
+  );
+}
 
 export default function AnalyticsPage() {
   const [authed, setAuthed] = useState(false);
@@ -36,9 +49,7 @@ export default function AnalyticsPage() {
     if (!authed) return;
     setLoading(true);
     fetch('/api/returns/analytics')
-      .then(r => r.json())
-      .then(d => setData(d))
-      .catch(() => {})
+      .then(r => r.json()).then(d => setData(d)).catch(() => {})
       .finally(() => setLoading(false));
   }, [authed]);
 
@@ -60,17 +71,13 @@ export default function AnalyticsPage() {
   }
 
   if (loading || !data) {
-    return (
-      <div className="min-h-screen bg-[var(--background)]">
-        <Header />
-        <div className="text-center py-20 text-[var(--muted-foreground)]">Loading analytics...</div>
-      </div>
-    );
+    return (<div className="min-h-screen bg-[var(--background)]"><Header /><div className="text-center py-20 text-[var(--muted-foreground)]">Loading analytics...</div></div>);
   }
 
   const o = data.overview;
   const maxMonthly = Math.max(1, ...data.monthlyTrend.map(m => m.returns));
   const maxDow = Math.max(1, ...data.dayOfWeek.map(d => d.count));
+  const doneTotal = (o.totalRefunded || 0) + (o.totalCredited || 0) + (o.totalRejected || 0) + (o.totalLost || 0);
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -81,18 +88,41 @@ export default function AnalyticsPage() {
 
         {/* ─── Overview Cards ─── */}
         <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <Card label="Total Returns" value={o.totalReturns.toLocaleString()} />
-          <Card label="Total Value" value={fmtMoney(o.totalValue)} />
-          <Card label="Avg Return" value={`$${o.avgValue.toFixed(0)}`} />
-          <Card label="Rejection Rate" value={`${o.rejectionRate}%`} sub={`${data.outcomeCounts.rejected || 0} rejected`} />
-          <Card label="Last 30 Days" value={String(o.last30Days)} sub={o.trend > 0 ? `↑ ${o.trend}%` : o.trend < 0 ? `↓ ${Math.abs(o.trend)}%` : 'Flat'} trend={o.trend} />
-          <Card label="Avg Items" value={o.avgItemsPerReturn.toFixed(1)} sub="per return" />
+          <MetricCard label="Total Returns" value={o.totalReturns.toLocaleString()} formula="COUNT(*) from returns table. Includes all statuses: inbox, shipping, backlog, done." />
+          <MetricCard label="Total Value" value={fmtMoney(o.totalValue)} formula={`SUM(subtotal) across all ${o.totalReturns} returns. ${o.zeroValueCount} returns have $0 value (rejected Redo imports with no value captured).`} />
+          <MetricCard label="Avg Return" value={`$${o.avgValueExcZero.toFixed(0)}`}
+            sub={o.zeroValueCount > 0 ? `excl. ${o.zeroValueCount} at $0` : undefined}
+            formula={`AVG(subtotal) WHERE subtotal > 0. Excludes ${o.zeroValueCount} returns with $0 (Redo imports missing value). Including $0s: $${o.avgValue.toFixed(0)}.`} />
+          <MetricCard label="Rejection Rate" value={`${o.rejectionRate}%`}
+            sub={`${o.totalRejected} of ${doneTotal} completed`}
+            formula={`COUNT(outcome='rejected') / COUNT(status='done') × 100. Only counts completed returns (refunded + credited + rejected + lost = ${doneTotal}). Does not include inbox, shipping, or backlog.`} />
+          <MetricCard label="Last 30 Days" value={String(o.last30Days)}
+            sub={o.trend > 0 ? `↑ ${o.trend}% vs prior 30d` : o.trend < 0 ? `↓ ${Math.abs(o.trend)}% vs prior 30d` : 'Flat vs prior 30d'}
+            trend={o.trend}
+            formula={`COUNT(*) WHERE return_requested >= 30 days ago. Prior 30 days: ${o.prior30Days}. Trend: (${o.last30Days} - ${o.prior30Days}) / ${o.prior30Days} × 100 = ${o.trend}%. Positive = more returns (bad).`} />
+          <MetricCard label="Avg Items" value={o.avgItemsPerReturn.toFixed(1)} sub="per return"
+            formula="AVG(item_count) across all returns. Most returns are single-item." />
+        </section>
+
+        {/* ─── Outcome Summary ─── */}
+        <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <MetricCard label="Refunded" value={fmtMoney(o.totalRefunded)} sub={`${data.outcomeCounts.refund || 0} returns`} accent="emerald"
+            formula={`SUM(subtotal) WHERE outcome='refund'. Count: ${data.outcomeCounts.refund || 0}. These were refunded to customer's original payment method.`} />
+          <MetricCard label="Credited" value={fmtMoney(o.totalCredited)} sub={`${data.outcomeCounts.credit || 0} returns`} accent="emerald"
+            formula={`SUM(subtotal) WHERE outcome='credit'. Count: ${data.outcomeCounts.credit || 0}. Issued as Shopify gift cards (store credit).`} />
+          <MetricCard label="Rejected" value={fmtMoney(o.totalRejected)} sub={`${data.outcomeCounts.rejected || 0} returns`} accent="red"
+            formula={`SUM(subtotal) WHERE outcome='rejected'. Count: ${data.outcomeCounts.rejected || 0}. Customer was denied the return (tags removed, wear, etc).`} />
+          <MetricCard label="Lost" value={fmtMoney(o.totalLost)} sub={`${data.outcomeCounts.lost || 0} returns`} accent="purple"
+            formula={`SUM(subtotal) WHERE outcome='lost'. Count: ${data.outcomeCounts.lost || 0}. Auto-marked: in transit 45+ days with no delivery confirmation.`} />
         </section>
 
         {/* ─── Monthly Trend ─── */}
         <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Monthly Returns (12 months)</h3>
+            <div className="flex items-center">
+              <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Monthly Returns (12 months)</h3>
+              <Tooltip text="COUNT(*) grouped by YYYY-MM of return_requested date. Stacked by type: refund (amber), credit (green), exchange (blue). Hover bars for exact numbers." />
+            </div>
             <div className="flex items-center gap-3 text-[11px] text-[var(--muted-foreground)]">
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-500" /> Refunds</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> Credits</span>
@@ -102,21 +132,20 @@ export default function AnalyticsPage() {
           <div className="flex items-end gap-2 h-48">
             {data.monthlyTrend.map(m => {
               const total = m.refunds + m.credits + m.exchanges;
-              const refPct = total > 0 ? (m.refunds / total) * 100 : 0;
-              const crPct = total > 0 ? (m.credits / total) * 100 : 0;
-              const exPct = total > 0 ? (m.exchanges / total) * 100 : 0;
               const height = (m.returns / maxMonthly) * 100;
               return (
                 <div key={m.month} className="flex-1 flex flex-col items-center group relative min-w-0">
-                  <div className="w-full flex flex-col h-full justify-end">
-                    <div className="w-full rounded-t-sm overflow-hidden" style={{ height: `${height}%` }}>
-                      <div className="w-full bg-amber-500" style={{ height: `${refPct}%` }} />
-                      <div className="w-full bg-emerald-500" style={{ height: `${crPct}%` }} />
-                      <div className="w-full bg-sky-500" style={{ height: `${exPct}%` }} />
+                  <div className="w-full flex flex-col justify-end h-full">
+                    <div className="w-full rounded-t-sm overflow-hidden flex flex-col" style={{ height: `${height}%` }}>
+                      {total > 0 && <div className="w-full bg-amber-500 flex-shrink-0" style={{ flexGrow: m.refunds }} />}
+                      {total > 0 && <div className="w-full bg-emerald-500 flex-shrink-0" style={{ flexGrow: m.credits }} />}
+                      {total > 0 && <div className="w-full bg-sky-500 flex-shrink-0" style={{ flexGrow: m.exchanges }} />}
                     </div>
                   </div>
-                  <div className="hidden group-hover:block absolute bottom-full mb-2 bg-[var(--foreground)] text-[var(--background)] text-[10px] px-2 py-1 rounded whitespace-nowrap z-10">
-                    {m.month}: {m.returns} returns · {fmtMoney(m.value)}
+                  <div className="hidden group-hover:block absolute bottom-full mb-2 bg-[var(--foreground)] text-[var(--background)] text-[10px] px-3 py-2 rounded-lg whitespace-nowrap z-10 shadow-xl">
+                    <div className="font-semibold mb-1">{m.month}</div>
+                    <div>{m.returns} returns · {fmtMoney(m.value)}</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">{m.refunds} refund · {m.credits} credit · {m.exchanges} exchange</div>
                   </div>
                 </div>
               );
@@ -131,7 +160,10 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* ─── Type Breakdown ─── */}
           <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-4">By Type</h3>
+            <div className="flex items-center mb-4">
+              <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">By Type</h3>
+              <Tooltip text="Grouped by returns.type field. 'Refund' = money back to payment method. 'Credit' = store credit (gift card). 'Exchange' = swap for different item (processed as credit)." />
+            </div>
             <div className="space-y-3">
               {Object.entries(data.typeCounts).sort((a, b) => b[1].count - a[1].count).map(([type, d]) => {
                 const pct = o.totalReturns > 0 ? (d.count / o.totalReturns) * 100 : 0;
@@ -142,8 +174,8 @@ export default function AnalyticsPage() {
                       <span className="text-[var(--foreground)] font-medium capitalize">{type}</span>
                       <span className="text-[var(--muted-foreground)]">{d.count} ({pct.toFixed(0)}%) · {fmtMoney(d.value)}</span>
                     </div>
-                    <div className="h-2 w-full bg-[var(--muted)] rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${colors[type] || 'bg-stone-400'}`} style={{ width: `${pct}%` }} />
+                    <div className="h-2.5 w-full bg-[var(--muted)] rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${colors[type] || 'bg-stone-400'} transition-all`} style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -153,7 +185,10 @@ export default function AnalyticsPage() {
 
           {/* ─── Outcome Breakdown ─── */}
           <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-4">Outcomes (Completed Returns)</h3>
+            <div className="flex items-center mb-4">
+              <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Outcomes</h3>
+              <Tooltip text="Only completed returns (status='done'). Outcome field: refund, credit, rejected, or lost. Percentage = count / total done." />
+            </div>
             <div className="space-y-3">
               {Object.entries(data.outcomeCounts).sort((a, b) => b[1] - a[1]).map(([outcome, count]) => {
                 const total = Object.values(data.outcomeCounts).reduce((s, c) => s + c, 0);
@@ -165,8 +200,8 @@ export default function AnalyticsPage() {
                       <span className="text-[var(--foreground)] font-medium capitalize">{outcome}</span>
                       <span className="text-[var(--muted-foreground)]">{count} ({pct.toFixed(0)}%)</span>
                     </div>
-                    <div className="h-2 w-full bg-[var(--muted)] rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${colors[outcome] || 'bg-stone-400'}`} style={{ width: `${pct}%` }} />
+                    <div className="h-2.5 w-full bg-[var(--muted)] rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${colors[outcome] || 'bg-stone-400'} transition-all`} style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -177,24 +212,30 @@ export default function AnalyticsPage() {
 
         {/* ─── Day of Week ─── */}
         <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-          <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-4">Returns by Day of Week</h3>
-          <div className="flex items-end gap-3 h-32">
-            {data.dayOfWeek.map(d => (
-              <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
-                <div className="w-full bg-[var(--ring)]/30 rounded-t-md" style={{ height: `${(d.count / maxDow) * 100}%` }}>
-                  <div className="w-full h-full bg-[var(--ring)] rounded-t-md opacity-60 hover:opacity-100 transition-opacity" />
+          <div className="flex items-center mb-4">
+            <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Returns by Day of Week</h3>
+            <Tooltip text="EXTRACT(DOW FROM return_requested). Sun=0 through Sat=6. Pattern reflects your Orthodox Jewish customer base — Saturday (Shabbat) is consistently lowest." />
+          </div>
+          <div className="flex items-end gap-3 h-36">
+            {data.dayOfWeek.map((d, i) => {
+              const pct = (d.count / maxDow) * 100;
+              const isSat = i === 6;
+              return (
+                <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 group">
+                  <div className="text-[11px] font-semibold text-[var(--foreground)] opacity-0 group-hover:opacity-100 transition-opacity">{d.count}</div>
+                  <div className={`w-full rounded-t-lg transition-all ${isSat ? 'bg-[var(--ring)]/20' : 'bg-[var(--ring)]/40'} group-hover:bg-[var(--ring)]/70`} style={{ height: `${pct}%` }} />
+                  <span className={`text-[11px] font-medium ${isSat ? 'text-[var(--muted-foreground)]' : 'text-[var(--foreground)]'}`}>{d.day}</span>
                 </div>
-                <span className="text-[11px] text-[var(--muted-foreground)] font-medium">{d.day}</span>
-                <span className="text-[10px] text-[var(--muted-foreground)]">{d.count}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
         {/* ─── Repeat Returners ─── */}
         <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-[var(--border)]">
+          <div className="px-5 py-4 border-b border-[var(--border)] flex items-center">
             <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Repeat Returners (3+ returns)</h3>
+            <Tooltip text="GROUP BY customer_name HAVING COUNT(*) >= 3. Sorted by return count desc. Value = SUM(subtotal). Includes all return types and statuses." />
           </div>
           <div className="divide-y divide-[var(--border)]">
             {data.repeatReturners.map((c, i) => (
@@ -209,6 +250,16 @@ export default function AnalyticsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* ─── Data Quality Note ─── */}
+        <section className="bg-amber-50/50 border border-amber-200/60 rounded-xl p-4">
+          <div className="text-[11px] text-amber-700 uppercase tracking-wider font-semibold mb-1">Data Notes</div>
+          <div className="text-xs text-amber-700/80 space-y-1">
+            <p>{o.zeroValueCount} returns have $0 value — these are rejected Redo imports where the return value was not captured during migration. They are excluded from average calculations but included in counts.</p>
+            <p>Return reasons are mostly empty for Redo imports (pre-migration data). New returns submitted via portal will have reasons.</p>
+            <p>All data sourced from Supabase returns table ({o.totalReturns} rows). Dates based on return_requested timestamp.</p>
           </div>
         </section>
       </main>
@@ -236,11 +287,24 @@ function Header() {
   );
 }
 
-function Card({ label, value, sub, trend }: { label: string; value: string; sub?: string; trend?: number }) {
+function MetricCard({ label, value, sub, formula, trend, accent }: { label: string; value: string; sub?: string; formula: string; trend?: number; accent?: string }) {
+  const accentClasses: Record<string, string> = {
+    emerald: 'bg-emerald-50/50 border-emerald-200/60',
+    red: 'bg-red-50/50 border-red-200/60',
+    purple: 'bg-purple-50/50 border-purple-200/60',
+  };
+  const valueClasses: Record<string, string> = {
+    emerald: 'text-emerald-700',
+    red: 'text-red-600',
+    purple: 'text-purple-600',
+  };
   return (
-    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm">
-      <p className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
-      <p className="font-heading text-2xl font-semibold text-[var(--foreground)] mt-1">{value}</p>
+    <div className={`border rounded-xl p-4 shadow-sm ${accent ? accentClasses[accent] || '' : 'bg-[var(--card)] border-[var(--border)]'}`}>
+      <div className="flex items-center">
+        <p className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
+        <Tooltip text={formula} />
+      </div>
+      <p className={`font-heading text-2xl font-semibold mt-1 ${accent ? valueClasses[accent] || 'text-[var(--foreground)]' : 'text-[var(--foreground)]'}`}>{value}</p>
       {sub && <p className={`text-[11px] mt-1 ${trend !== undefined ? (trend > 0 ? 'text-red-500' : trend < 0 ? 'text-emerald-600' : 'text-[var(--muted-foreground)]') : 'text-[var(--muted-foreground)]'}`}>{sub}</p>}
     </div>
   );
