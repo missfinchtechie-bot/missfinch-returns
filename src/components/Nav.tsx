@@ -54,7 +54,7 @@ export function Nav({ active, right }: NavProps) {
             <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200/70 text-amber-700">Intern</span>
           )}
           <span className="mx-1 h-5 w-px bg-[var(--border)]" />
-          <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
+          <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5 overflow-x-auto max-w-full">
             {links.map(l => {
               const isActive = l.key === active;
               const showBadge = l.key === 'messages' && pendingCount > 0;

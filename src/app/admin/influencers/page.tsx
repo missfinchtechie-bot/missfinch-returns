@@ -120,6 +120,20 @@ const engagementTone = (e: number | null): string => {
 };
 const igUrl = (handle: string) => `https://instagram.com/${handle.replace(/^@/, '')}`;
 
+function SortHeader({ label, field, align, width, sortKey, sortDir, onToggle }: {
+  label: string; field: string; align: 'left' | 'right' | 'center'; width: string;
+  sortKey: string | null; sortDir: 'asc' | 'desc'; onToggle: (k: string) => void;
+}) {
+  const active = sortKey === field;
+  const arrow = active ? (sortDir === 'asc' ? '↑' : '↓') : '';
+  return (
+    <th onClick={() => onToggle(field)}
+      className={`px-2 py-2.5 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none ${width} text-${align} ${active ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'} hover:text-[var(--foreground)] transition-colors`}>
+      <span className="inline-flex items-center gap-1">{label}{arrow && <span>{arrow}</span>}</span>
+    </th>
+  );
+}
+
 function StatusBadge({ status, large }: { status: string; large?: boolean }) {
   const m = STATUS_META[status] || STATUS_META.pending_review;
   const size = large ? 'text-[11px] px-2.5 py-1' : 'text-[10px] px-2 py-0.5';
@@ -143,6 +157,17 @@ export default function InfluencersPage() {
   const [showForm, setShowForm] = useState(false);
   const [showGuidelines, setShowGuidelines] = useState(false);
   const [toast, setToast] = useState('');
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) {
+      if (sortDir === 'asc') setSortDir('desc');
+      else setSortKey(null);
+    } else {
+      setSortKey(key); setSortDir('asc');
+    }
+  };
 
   useEffect(() => {
     fetch('/api/auth', { method: 'GET' })
@@ -179,8 +204,41 @@ export default function InfluencersPage() {
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return q ? rows.filter(r => r.instagram_handle.toLowerCase().includes(q)) : rows;
+    if (!q) return rows;
+    return rows.filter(r =>
+      [r.instagram_handle, ...(r.niche_tags || []), r.bio_notes, r.dm_context, r.deal_type]
+        .filter(Boolean).join(' ').toLowerCase().includes(q)
+    );
   }, [rows, search]);
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return filteredRows;
+    return [...filteredRows].sort((a, b) => {
+      let av: string | number = 0, bv: string | number = 0;
+      switch (sortKey) {
+        case 'handle': av = a.instagram_handle.toLowerCase(); bv = b.instagram_handle.toLowerCase(); break;
+        case 'followers': av = a.follower_count || 0; bv = b.follower_count || 0; break;
+        case 'engagement': av = a.engagement_rate || 0; bv = b.engagement_rate || 0; break;
+        case 'status': av = a.status; bv = b.status; break;
+        case 'products': av = (a.products_to_send || []).length; bv = (b.products_to_send || []).length; break;
+        case 'deal': av = a.deal_type || ''; bv = b.deal_type || ''; break;
+        case 'payment': av = a.payment_amount || 0; bv = b.payment_amount || 0; break;
+        case 'added': av = a.created_at; bv = b.created_at; break;
+        case 'due': av = a.expected_post_date || '9999'; bv = b.expected_post_date || '9999'; break;
+        default: return 0;
+      }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredRows, sortKey, sortDir]);
+
+  const isOverdue = (r: Influencer): boolean => {
+    if (!r.expected_post_date) return false;
+    if (!['shipped', 'content_pending'].includes(r.status)) return false;
+    return new Date(r.expected_post_date) < new Date();
+  };
+  const overdueCount = rows.filter(isOverdue).length;
 
   if (!authed) {
     return (
@@ -229,7 +287,10 @@ export default function InfluencersPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <MetricCard label="Pending Review" value={String(pendingCount)} sub="awaiting approval" accent={pendingCount > 0 ? 'amber' : undefined} formula="COUNT status='pending_review'" />
               <MetricCard label="Active Deals" value={String(activeCount)} sub="deal + shipped + content pending" accent="sky" formula="deal + shipped + content_pending" />
-              <MetricCard label="Content Pending" value={String(contentPending)} sub="product shipped, awaiting post" formula="shipped + content_pending" />
+              <MetricCard label="Content Pending" value={String(contentPending)}
+                sub={overdueCount > 0 ? `${overdueCount} overdue` : 'product shipped, awaiting post'}
+                accent={overdueCount > 0 ? 'red' : undefined}
+                formula="shipped + content_pending. Red when an expected_post_date has already passed." />
               <MetricCard label="Watchlist" value={String(watchlistCount)} sub="tracking, not outreached" accent="purple" formula="COUNT status='watchlist'" />
               <div className="hidden sm:block"><MetricCard label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalInfluencers || 0} total records`} formula="SUM(products_to_send price × qty) all time where shipped+" /></div>
               <div className="hidden sm:block"><MetricCard label="Posts Received" value={String(stats?.thisMonth.posts || 0)} sub="this month" formula="COUNT content_posted_date in current month" /></div>
@@ -238,7 +299,7 @@ export default function InfluencersPage() {
         )}
 
         {/* Filter pills */}
-        <div className="flex flex-wrap items-center gap-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-2">
+        <div className="flex items-center gap-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-2 overflow-x-auto whitespace-nowrap">
           {FILTERS.map(f => {
             const count = f.key === 'active' ? activeCount : f.key === 'all' ? rows.length : (pipeline[f.key] || 0);
             const showCount = f.key === 'pending_review' && pendingCount > 0;
@@ -253,9 +314,9 @@ export default function InfluencersPage() {
         </div>
 
         {/* Search + Add */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-md">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by @handle…"
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1 sm:max-w-md">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search handles, niches, notes…"
               className="w-full py-2.5 px-4 pl-9 bg-[var(--card)] border border-[var(--border)] rounded-xl text-sm focus:outline-none focus:border-[var(--ring)]" />
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-xs">🔍</span>
           </div>
@@ -280,25 +341,31 @@ export default function InfluencersPage() {
                 <thead>
                   <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
                     <th className="pl-4 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Handle</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[80px]">Followers</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[70px]">Engage</th>
+                    <SortHeader label="Followers" field="followers" align="right" width="w-[80px]" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <SortHeader label="Engage" field="engagement" align="right" width="w-[70px]" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                     <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[140px]">Niche</th>
                     <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[150px]">Content</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[110px]">Status</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[80px]">Products</th>
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[90px]">Deal</th>
-                    <th className="px-2 pr-4 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[90px]">Added</th>
+                    <SortHeader label="Status" field="status" align="center" width="w-[110px]" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <SortHeader label="Products" field="products" align="left" width="w-[80px]" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <SortHeader label="Deal" field="deal" align="left" width="w-[90px]" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <SortHeader label="Payment" field="payment" align="right" width="hidden xl:table-cell w-[80px]" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <SortHeader label="Due" field="due" align="left" width="hidden xl:table-cell w-[100px]" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                    <SortHeader label="Added" field="added" align="left" width="w-[90px] pr-4" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {filteredRows.map(r => {
+                  {sortedRows.map(r => {
                     const niches = r.niche_tags || [];
                     const cts = r.content_types || [];
                     const productCount = (r.products_to_send || []).length;
+                    const overdue = isOverdue(r);
+                    const needsAction = r.status === 'pending_review' || r.status === 'countered';
+                    const rowCls = overdue ? 'bg-red-50/30' : needsAction ? 'bg-amber-50/30' : '';
                     return (
-                      <tr key={r.id} onClick={() => setSelectedId(r.id)} className="cursor-pointer hover:bg-[var(--accent)]/40 transition-colors">
+                      <tr key={r.id} onClick={() => setSelectedId(r.id)} className={`cursor-pointer hover:bg-[var(--accent)]/40 transition-colors ${rowCls}`}>
                         <td className="pl-4 pr-2 py-3">
                           <a href={igUrl(r.instagram_handle)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            title={r.scraped_data?.biography || undefined}
                             className="text-sm font-semibold text-[var(--foreground)] hover:text-sky-600 hover:underline">{r.instagram_handle}</a>
                           <div className="text-[10px] text-[var(--muted-foreground)]">via {r.created_by || 'admin'}</div>
                         </td>
@@ -317,6 +384,17 @@ export default function InfluencersPage() {
                         <td className="px-2 py-3 text-center"><StatusBadge status={r.status} /></td>
                         <td className="px-2 py-3 text-xs text-[var(--muted-foreground)]">{productCount > 0 ? `${productCount} item${productCount !== 1 ? 's' : ''}` : '—'}</td>
                         <td className="px-2 py-3 text-xs text-[var(--muted-foreground)]">{r.deal_type || '—'}</td>
+                        <td className="hidden xl:table-cell px-2 py-3 text-right text-sm tabular-nums">
+                          {r.payment_amount > 0 ? `$${r.payment_amount}` : <span className="text-emerald-600 text-xs">Free</span>}
+                        </td>
+                        <td className="hidden xl:table-cell px-2 py-3 text-xs text-[var(--muted-foreground)]">
+                          {r.expected_post_date ? (
+                            <span className={overdue ? 'text-red-500 font-semibold' : ''}>
+                              {fmtDate(r.expected_post_date)}
+                              {overdue && <span className="block text-[10px]">Overdue</span>}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td className="px-2 pr-4 py-3 text-xs text-[var(--muted-foreground)]">{fmtDate(r.created_at)}</td>
                       </tr>
                     );
@@ -326,21 +404,39 @@ export default function InfluencersPage() {
             </div>
 
             <div className="md:hidden flex flex-col gap-2">
-              {filteredRows.map(r => (
-                <div key={r.id} onClick={() => setSelectedId(r.id)} className="p-4 bg-[var(--card)] rounded-xl border border-[var(--border)] active:bg-[var(--accent)] shadow-sm">
-                  <div className="flex justify-between items-start mb-1.5">
-                    <div className="min-w-0 flex-1 mr-3">
-                      <div className="font-semibold text-[var(--foreground)]">{r.instagram_handle}</div>
-                      <div className="text-xs">
-                        <span className="text-[var(--muted-foreground)]">{fmtFollowers(r.follower_count)} followers · </span>
-                        <span className={`font-semibold ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate ? `${r.engagement_rate}%` : '—'}</span>
+              {sortedRows.map(r => {
+                const niches = r.niche_tags || [];
+                const productCount = (r.products_to_send || []).length;
+                const overdue = isOverdue(r);
+                const needsAction = r.status === 'pending_review' || r.status === 'countered';
+                const cardCls = overdue ? 'bg-red-50/40 border-red-200/70' : needsAction ? 'bg-amber-50/40 border-amber-200/70' : 'bg-[var(--card)] border-[var(--border)]';
+                return (
+                  <div key={r.id} onClick={() => setSelectedId(r.id)} className={`p-4 rounded-xl border shadow-sm active:bg-[var(--accent)] ${cardCls}`}>
+                    <div className="flex justify-between items-start mb-2 gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-[var(--foreground)] truncate">{r.instagram_handle}</div>
+                        <div className="text-xs">
+                          <span className="text-[var(--muted-foreground)]">{fmtFollowers(r.follower_count)} · </span>
+                          <span className={`font-semibold ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</span>
+                          {productCount > 0 && <span className="text-[var(--muted-foreground)]"> · {productCount} item{productCount !== 1 ? 's' : ''}</span>}
+                          {r.payment_amount > 0 && <span className="font-semibold text-[var(--foreground)]"> · ${r.payment_amount}</span>}
+                        </div>
                       </div>
+                      <StatusBadge status={r.status} large />
                     </div>
-                    <StatusBadge status={r.status} large />
+                    {niches.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-1.5">
+                        {niches.slice(0, 3).map(n => <span key={n} className="text-[10px] bg-[var(--muted)] text-[var(--muted-foreground)] px-1.5 py-0.5 rounded">{n}</span>)}
+                        {niches.length > 3 && <span className="text-[10px] text-[var(--muted-foreground)]">+{niches.length - 3}</span>}
+                      </div>
+                    )}
+                    <div className="text-[10px] text-[var(--muted-foreground)]">{fmtDate(r.created_at)} · via {r.created_by}</div>
+                    {overdue && (
+                      <div className="mt-1.5 text-[10px] text-red-500 font-semibold">⚠ Content overdue — expected {fmtDate(r.expected_post_date!)}</div>
+                    )}
                   </div>
-                  <div className="text-[10px] text-[var(--muted-foreground)]">{fmtDate(r.created_at)} · via {r.created_by}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
