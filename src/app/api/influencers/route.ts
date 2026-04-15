@@ -122,8 +122,11 @@ export async function PATCH(req: NextRequest) {
     update.counter_note = fields.counter_note;
     update.declined_reason = fields.counter_note;
     logDetails = { note: fields.counter_note };
-  } else if (action === 'add_to_watchlist') {
+  } else if (action === 'add_to_watchlist' || action === 'watchlist') {
     update.status = 'watchlist';
+    update.status_changed_at = now;
+  } else if (action === 'content_pending') {
+    update.status = 'content_pending';
     update.status_changed_at = now;
   } else if (action === 'move_to_pending') {
     update.status = 'pending_review';
@@ -164,7 +167,8 @@ export async function PATCH(req: NextRequest) {
     update.content_urls = fields.content_urls || [];
     update.content_posted_date = fields.content_posted_date || now.slice(0, 10);
     update.content_type_posted = fields.content_type_posted || [];
-    update.status = fields.mark_complete ? 'complete' : 'posted';
+    // Per spec: saving content finalizes to complete (unless mark_complete=false explicitly)
+    update.status = fields.mark_complete === false ? 'posted' : 'complete';
     update.status_changed_at = now;
     logDetails = { urls: fields.content_urls };
   } else if (action === 'update_fields') {

@@ -759,9 +759,18 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
       body: JSON.stringify({ influencer_id: influencer.id }),
     });
     const d = await res.json();
+    if (res.ok) {
+      flash(`Draft created: ${d.draft?.name}`);
+      // Auto-advance to shipped per spec
+      await fetch('/api/influencers', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: influencer.id, action: 'mark_shipped', user_role: role }),
+      });
+      onRefresh();
+    } else {
+      flash(`Error: ${d.error || 'Failed'}`);
+    }
     setBusy(false);
-    if (res.ok) { flash(`Draft created: ${d.draft?.name}`); onRefresh(); }
-    else flash(`Error: ${d.error || 'Failed'}`);
   };
 
   const saveDeal = async () => {
@@ -860,6 +869,14 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
             </div>
             <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">✕</button>
           </div>
+
+          {/* Declined banner */}
+          {s === 'declined' && influencer.declined_reason && (
+            <div className="bg-red-50 border border-red-200/70 rounded-xl p-3 text-sm text-red-700">
+              <div className="uppercase tracking-wider font-semibold text-[11px] mb-1">Declined</div>
+              <div className="whitespace-pre-wrap text-xs">{influencer.declined_reason}</div>
+            </div>
+          )}
 
           {/* Counter banner */}
           {s === 'countered' && (influencer.counter_note || influencer.declined_reason) && (
@@ -1233,8 +1250,7 @@ function QuickActions(props: {
     buttons.push(Btn('Move to Pending', props.onMoveToPending, 'bg-[var(--primary)] text-[var(--primary-foreground)]'));
   }
   if (isAdmin && s === 'approved') buttons.push(Btn('Set Up Deal →', props.onSetUpDeal, 'bg-sky-600'));
-  if (isAdmin && s === 'deal') buttons.push(Btn('Create Shopify Order', props.onCreateOrder, 'bg-emerald-600'));
-  if (isAdmin && s === 'deal') buttons.push(Btn('Mark Shipped', props.onMarkShipped, 'bg-blue-600'));
+  if (isAdmin && s === 'deal') buttons.push(Btn('Create Order & Mark Shipped', props.onCreateOrder, 'bg-emerald-600'));
   if (isAdmin && s === 'shipped') buttons.push(Btn('Content Pending', props.onContentPending, 'bg-orange-500'));
   if (s === 'content_pending' || s === 'shipped') buttons.push(Btn('Log Content', props.onLogContent, 'bg-[var(--primary)] text-[var(--primary-foreground)]'));
   if (isAdmin && s === 'posted') buttons.push(Btn('Mark Complete ✓', props.onMarkComplete, 'bg-emerald-600'));
