@@ -143,6 +143,7 @@ export default function MessagesPage() {
           <div className="hidden sm:flex items-center gap-1 ml-2 bg-[#2a2a2a] rounded-lg p-0.5">
             <a href="/admin" className="text-[#aaa] hover:text-white text-xs tracking-wider uppercase px-3 py-1.5 rounded-md hover:bg-[#333] transition-colors">Returns</a>
             <span className="text-white text-xs tracking-wider uppercase font-medium px-3 py-1.5 bg-[#444] rounded-md">Messages</span>
+            <a href="/admin/financials" className="text-[#aaa] hover:text-white text-xs tracking-wider uppercase px-3 py-1.5 rounded-md hover:bg-[#333] transition-colors">Financials</a>
           </div>
         </div>
         <div className="flex items-center gap-3">

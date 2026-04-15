@@ -1,17 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export async function GET(req: NextRequest) {
+  const cookie = req.cookies.get('mf_auth');
+  if (cookie?.value === 'authenticated') {
+    return NextResponse.json({ authed: true });
+  }
+  return NextResponse.json({ authed: false }, { status: 401 });
+}
+
 export async function POST(req: NextRequest) {
   const { password } = await req.json();
-  const adminPassword = process.env.ADMIN_PASSWORD || 'missfinch2026';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'RSH0731';
 
   if (password === adminPassword) {
     const response = NextResponse.json({ success: true });
-    // Set a simple auth cookie (7 days)
+    // Remember device for 1 year
     response.cookies.set('mf_auth', 'authenticated', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 24 * 7,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 365,
       path: '/',
     });
     return response;
