@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react';
 
-type Page = 'returns' | 'messages' | 'financials' | 'analytics';
+type Page = 'returns' | 'messages' | 'financials' | 'analytics' | 'influencers';
 
 const LINKS: { key: Page; label: string; href: string }[] = [
   { key: 'returns', label: 'Returns', href: '/admin' },
   { key: 'messages', label: 'Messages', href: '/admin/messages' },
   { key: 'financials', label: 'Financials', href: '/admin/financials' },
   { key: 'analytics', label: 'Analytics', href: '/admin/analytics' },
+  { key: 'influencers', label: 'Influencers', href: '/admin/influencers' },
 ];
 
 interface NavProps {

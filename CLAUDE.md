@@ -146,6 +146,32 @@ source_type text, source_id text, payout_id text, synced_at timestamptz
 id uuid PK, key text, value jsonb, updated_at timestamptz
 ```
 
+### influencers
+```
+id uuid PK, created_at timestamptz, updated_at timestamptz, created_by text,
+instagram_handle text NOT NULL, profile_url text, follower_count int, engagement_rate numeric(5,2),
+niche_tags text[], content_types text[], bio_notes text, already_contacted bool(false),
+status text('pending_review') ['pending_review','approved','declined','deal','shipped','content_pending','posted','complete'],
+status_changed_at timestamptz, declined_reason text,
+deal_type text, payment_amount numeric(10,2), products_to_send jsonb, deliverables text,
+expected_post_date date, special_instructions text, discount_code text, shipping_address jsonb,
+shopify_draft_order_id text, shopify_order_id text, shopify_order_name text, shopify_fulfillment_status text,
+content_urls text[], content_posted_date date, content_type_posted text[],
+post_reach int, post_impressions int, post_engagement int, post_shares int, post_video_views int
+```
+
+### influencer_notes
+```
+id uuid PK, created_at timestamptz, influencer_id uuid FK→influencers,
+user_name text, user_role text, note_text text
+```
+
+### influencer_activity_log
+```
+id uuid PK, created_at timestamptz, influencer_id uuid FK→influencers,
+user_role text, action text, details jsonb
+```
+
 ---
 
 ## CURRENT FILE STRUCTURE
@@ -159,6 +185,7 @@ src/
       messages/page.tsx     — AI email triage (~240 lines, WORKING)
       financials/page.tsx   — Financial overview (~348 lines, PARTIALLY WORKING)
       analytics/page.tsx    — Returns analytics (~230 lines, WORKING)
+      influencers/page.tsx  — Influencer tracker (pipeline, deals, Shopify drafts)
     api/
       auth/                 — Password login (GET check, POST login)
       returns/              — Returns CRUD, stats, maintenance, order lookup, notes, history, analytics, items, update
