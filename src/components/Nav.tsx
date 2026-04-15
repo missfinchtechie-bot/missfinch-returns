@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 
 type Page = 'returns' | 'messages' | 'financials' | 'analytics' | 'influencers';
+type Role = 'admin' | 'intern';
 
-const LINKS: { key: Page; label: string; href: string; adminOnly?: boolean }[] = [
+const LINKS: { key: Page; label: string; href: string; adminOnly: boolean }[] = [
   { key: 'returns', label: 'Returns', href: '/admin', adminOnly: true },
   { key: 'messages', label: 'Messages', href: '/admin/messages', adminOnly: true },
   { key: 'financials', label: 'Financials', href: '/admin/financials', adminOnly: true },
   { key: 'analytics', label: 'Analytics', href: '/admin/analytics', adminOnly: true },
-  { key: 'influencers', label: 'Influencers', href: '/admin/influencers' },
+  { key: 'influencers', label: 'Influencers', href: '/admin/influencers', adminOnly: false },
 ];
 
 interface NavProps {
@@ -19,21 +20,29 @@ interface NavProps {
 
 export function Nav({ active, right }: NavProps) {
   const [pendingCount, setPendingCount] = useState<number>(0);
-  const [role, setRole] = useState<string>('admin');
+  const [role, setRole] = useState<Role | null>(null);
 
   useEffect(() => {
     fetch('/api/auth', { method: 'GET' })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.role) setRole(d.role); })
       .catch(() => {});
+  }, []);
 
+  useEffect(() => {
+    if (role !== 'admin') return;
     fetch('/api/messages/list?status=pending_review')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.messages) setPendingCount(d.messages.length); })
       .catch(() => {});
-  }, []);
+  }, [role]);
 
-  const visibleLinks = role === 'intern' ? LINKS.filter(l => !l.adminOnly) : LINKS;
+  const logout = async () => {
+    await fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
+    window.location.href = '/admin';
+  };
+
+  const links = LINKS.filter(l => role === 'admin' || !l.adminOnly);
 
   return (
     <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 sm:px-6 py-3.5 shadow-sm">
@@ -41,9 +50,12 @@ export function Nav({ active, right }: NavProps) {
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 min-w-0">
           <h1 className="font-heading text-lg sm:text-xl font-semibold italic text-[var(--foreground)]">Miss Finch</h1>
           <span className="hidden sm:inline text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--muted-foreground)]">NYC</span>
+          {role === 'intern' && (
+            <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200/70 text-amber-700">Intern</span>
+          )}
           <span className="mx-1 h-5 w-px bg-[var(--border)]" />
           <div className="flex items-center gap-0.5 bg-[var(--muted)] rounded-lg p-0.5">
-            {visibleLinks.map(l => {
+            {links.map(l => {
               const isActive = l.key === active;
               const showBadge = l.key === 'messages' && pendingCount > 0;
               const cls = isActive
@@ -62,11 +74,16 @@ export function Nav({ active, right }: NavProps) {
               );
             })}
           </div>
-          {role === 'intern' && (
-            <span className="text-[10px] bg-sky-50 text-sky-600 border border-sky-200/80 px-2 py-0.5 rounded-lg font-semibold ml-2">Intern</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {right}
+          {role && (
+            <button onClick={logout} title="Log out"
+              className="text-[11px] tracking-wider uppercase font-semibold px-2.5 py-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)] transition-colors">
+              Log out
+            </button>
           )}
         </div>
-        {right && <div className="flex-shrink-0">{right}</div>}
       </div>
     </header>
   );

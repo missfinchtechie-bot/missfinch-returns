@@ -86,6 +86,13 @@ export default function MessagesPage() {
     setLoading(false);
   }, [filter]);
 
+  useEffect(() => {
+    fetch('/api/auth', { method: 'GET' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.role === 'intern') window.location.href = '/admin/influencers'; })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => { fetchMessages(); }, [fetchMessages]);
 
   const selectMessage = (m: Message) => {

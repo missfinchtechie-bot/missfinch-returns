@@ -88,21 +88,19 @@ export default function InfluencersPage() {
   const [role, setRole] = useState<Role | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const saved = localStorage.getItem('mf_role') as Role | null;
-    if (saved === 'admin' || saved === 'intern') setRole(saved);
+    fetch('/api/auth', { method: 'GET' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.role) { setRole(d.role); setAuthed(true); } })
+      .catch(() => {});
   }, []);
-
-  const pickRole = (r: Role) => {
-    localStorage.setItem('mf_role', r);
-    setRole(r);
-  };
-
-  useEffect(() => { fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
 
   const login = async () => {
     const res = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-    if (res.ok) { setAuthed(true); setPwErr(''); } else setPwErr('Wrong password');
+    if (!res.ok) { setPwErr('Wrong password'); return; }
+    const d = await res.json();
+    setRole(d.role);
+    setAuthed(true);
+    setPwErr('');
   };
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3000); };
@@ -146,30 +144,8 @@ export default function InfluencersPage() {
     );
   }
 
-  // Role picker modal
   if (!role) {
-    return (
-      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center p-6">
-        <div className="w-full max-w-md text-center space-y-6">
-          <div>
-            <h1 className="font-heading text-3xl font-semibold text-[var(--foreground)]">Who are you?</h1>
-            <p className="text-sm text-[var(--muted-foreground)] mt-2">Pick your role. You can switch later.</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={() => pickRole('admin')} className="p-6 rounded-2xl border border-[var(--border)] bg-[var(--card)] hover:border-[var(--ring)] hover:shadow-md transition-all">
-              <div className="text-2xl mb-2">👋</div>
-              <div className="font-heading text-lg font-semibold text-[var(--foreground)]">Ryan</div>
-              <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider mt-1">Admin</div>
-            </button>
-            <button onClick={() => pickRole('intern')} className="p-6 rounded-2xl border border-[var(--border)] bg-[var(--card)] hover:border-[var(--ring)] hover:shadow-md transition-all">
-              <div className="text-2xl mb-2">📱</div>
-              <div className="font-heading text-lg font-semibold text-[var(--foreground)]">Intern</div>
-              <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider mt-1">Social Team</div>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <div className="min-h-screen bg-[var(--background)] flex items-center justify-center text-[var(--muted-foreground)] text-sm">Loading…</div>;
   }
 
   const pipeline = stats?.pipeline || {};
@@ -189,14 +165,7 @@ export default function InfluencersPage() {
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Influencer Tracker</h2>
-            <button onClick={() => { localStorage.removeItem('mf_role'); setRole(null); }}
-              className={`text-[10px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-lg border ${role === 'admin' ? 'bg-sky-50 border-sky-200/70 text-sky-700' : 'bg-amber-50 border-amber-200/70 text-amber-700'}`}
-              title="Click to switch role">
-              {role} ↻
-            </button>
-          </div>
+          <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Influencer Tracker</h2>
           <button onClick={() => setShowGuidelines(v => !v)} className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] font-semibold">
             {showGuidelines ? '▼' : '▶'} Vetting Guidelines
           </button>

@@ -22,16 +22,12 @@ export function middleware(req: NextRequest) {
     if (path.startsWith('/returns')) {
       return NextResponse.redirect(new URL('/', req.url));
     }
+  }
 
-    // Role-based access: intern can only access /admin/influencers
-    const authCookie = req.cookies.get('mf_auth')?.value;
-    if (authCookie === 'intern') {
-      const adminPages = ['/admin/messages', '/admin/financials', '/admin/analytics'];
-      // Block intern from non-influencer admin pages (allow /admin/influencers and /api)
-      if (path === '/admin' || adminPages.some(p => path.startsWith(p))) {
-        return NextResponse.redirect(new URL('/admin/influencers', req.url));
-      }
-    }
+  // Intern role: lock them to /admin/influencers (APIs still allowed)
+  const role = req.cookies.get('mf_auth')?.value;
+  if (role === 'intern' && path.startsWith('/admin') && !path.startsWith('/admin/influencers')) {
+    return NextResponse.redirect(new URL('/admin/influencers', req.url));
   }
 
   return NextResponse.next();

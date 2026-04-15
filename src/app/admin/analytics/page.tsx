@@ -47,11 +47,22 @@ export default function AnalyticsPage() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 
-  useEffect(() => { fetch('/api/auth', { method: 'GET' }).then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
+  useEffect(() => {
+    fetch('/api/auth', { method: 'GET' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.role === 'intern') { window.location.href = '/admin/influencers'; return; }
+        if (d?.role === 'admin') setAuthed(true);
+      })
+      .catch(() => {});
+  }, []);
 
   const login = async () => {
     const res = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-    if (res.ok) { setAuthed(true); setPwErr(''); } else setPwErr('Wrong password');
+    if (!res.ok) { setPwErr('Wrong password'); return; }
+    const d = await res.json();
+    if (d.role === 'intern') { window.location.href = '/admin/influencers'; return; }
+    setAuthed(true); setPwErr('');
   };
 
   const range = useMemo(() => rangeFor(preset, customFrom, customTo), [preset, customFrom, customTo]);
