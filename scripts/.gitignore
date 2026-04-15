@@ -1,0 +1,3 @@
+chunk-*.sql
+scrape-data-only.sql
+scrape-updates.sql
