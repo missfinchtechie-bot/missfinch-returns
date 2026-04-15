@@ -559,7 +559,15 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
   const retailTotal = order?.lineItems?.reduce((s, i) => s + parseFloat(i.retailPrice || '0') * i.quantity, 0) || 0;
   const orderTotal = parseFloat(order?.total || '0');
   const discount = parseFloat(order?.totalDiscount || '0');
-  const restockFee = orderTotal > 0 && localSubtotal > 0 ? orderTotal - localSubtotal : 0;
+  const orderItemCount = order?.lineItems?.reduce((s, i) => s + i.quantity, 0) || 0;
+  const isPartialReturn = orderItemCount > 0 && r.item_count < orderItemCount;
+
+  // Actual fee: 5% restocking on refunds, $0 on credit/exchange (from fees.ts logic)
+  const restockPct = r.type === 'refund' ? 5 : 0;
+  const restockFee = r.type === 'refund' ? Math.round((localSubtotal || 0) * 0.05 * 100) / 100 : 0;
+  
+  // Returned items value vs kept items value (for partial returns)
+  const keptItemsValue = orderTotal > 0 && localSubtotal > 0 && isPartialReturn ? orderTotal - localSubtotal : 0;
 
   // Intelligence calculations
   const now = new Date();
@@ -699,12 +707,33 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
         <div className="mb-4 bg-[var(--muted)] rounded-xl p-3">
           <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider mb-2 font-semibold">Summary</div>
           <div className="space-y-1.5 text-sm">
-            {retailTotal > 0 && Math.abs(retailTotal - orderTotal) > 0.01 && (
-              <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Retail</span><span className="text-[var(--muted-foreground)]">${retailTotal.toFixed(2)}</span></div>
+            {/* Order info */}
+            <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Order total ({orderItemCount} item{orderItemCount !== 1 ? 's' : ''})</span><span className="text-[var(--foreground)]">${orderTotal.toFixed(2)}</span></div>
+            {discount > 0 && <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Discount applied</span><span className="text-red-500">-${discount.toFixed(2)}</span></div>}
+            
+            {/* Partial return breakdown */}
+            {isPartialReturn && (
+              <>
+                <div className="pt-1.5 mt-1.5 border-t border-[var(--border)]" />
+                <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Returning {r.item_count} of {orderItemCount} items</span><span className="text-[var(--foreground)]">${(localSubtotal || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Keeping {orderItemCount - r.item_count} item{orderItemCount - r.item_count !== 1 ? 's' : ''}</span><span className="text-[var(--muted-foreground)]">${keptItemsValue.toFixed(2)}</span></div>
+              </>
             )}
-            {discount > 0 && <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Discount</span><span className="text-red-500">-${discount.toFixed(2)}</span></div>}
-            <div className="flex justify-between"><span className="text-[var(--foreground)] font-medium">Order total</span><span className="text-[var(--foreground)] font-medium">${orderTotal.toFixed(2)}</span></div>
-            {restockFee > 0.01 && r.type === 'refund' && <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Restocking fee</span><span className="text-red-500">-${restockFee.toFixed(2)}</span></div>}
+
+            {/* Restocking fee */}
+            {restockFee > 0 && (
+              <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Restocking fee ({restockPct}%)</span><span className="text-red-500">-${restockFee.toFixed(2)}</span></div>
+            )}
+            {r.type !== 'refund' && (
+              <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Restocking fee</span><span className="text-emerald-600">Free (store credit)</span></div>
+            )}
+
+            {/* Store credit bonus */}
+            {r.bonus_amount > 0 && (
+              <div className="flex justify-between"><span className="text-[var(--muted-foreground)]">Store credit bonus (5%)</span><span className="text-emerald-600">+${r.bonus_amount.toFixed(2)}</span></div>
+            )}
+
+            {/* Return value */}
             <div className="flex justify-between items-center pt-1.5 border-t border-[var(--border)]">
               <span className="text-[var(--foreground)] font-semibold">Return value</span>
               {editingValue ? (
@@ -718,6 +747,16 @@ function Detail({ r, showReject, setShowReject, rejectReason, setRejectReason, d
               ) : (
                 <button onClick={() => { setEditValue((localSubtotal || 0).toFixed(2)); setEditingValue(true); }} className="text-[var(--foreground)] font-bold hover:underline cursor-pointer">${(localSubtotal || 0).toFixed(2)} <span className="text-[10px] text-[var(--border)] ml-0.5">✎</span></button>
               )}
+            </div>
+
+            {/* Net refund after fee */}
+            {restockFee > 0 && (
+              <div className="flex justify-between"><span className="text-[var(--foreground)] font-medium">Net refund after fee</span><span className="text-[var(--foreground)] font-semibold">${((localSubtotal || 0) - restockFee).toFixed(2)}</span></div>
+            )}
+
+            {/* Return type label */}
+            <div className="text-[10px] text-[var(--muted-foreground)] text-center pt-1">
+              {r.type === 'refund' ? 'Refund to original payment method' : r.type === 'credit' ? 'Issued as store credit' : 'Exchange'}
             </div>
           </div>
         </div>
