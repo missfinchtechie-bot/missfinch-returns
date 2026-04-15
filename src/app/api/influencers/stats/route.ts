@@ -4,7 +4,7 @@ import { getServiceClient } from '@/lib/supabase';
 export async function GET() {
   const supabase = getServiceClient();
 
-  const statuses = ['pending_review', 'countered', 'approved', 'declined', 'deal', 'shipped', 'content_pending', 'posted', 'complete'];
+  const statuses = ['prospect', 'outreach', 'negotiating', 'approved', 'shipped', 'posted', 'watchlist', 'passed'];
   const counts: Record<string, number> = {};
 
   await Promise.all(statuses.map(async s => {
@@ -35,7 +35,7 @@ export async function GET() {
 
   const { data: allTimeRows } = await supabase
     .from('influencers').select('products_to_send')
-    .in('status', ['shipped', 'posted', 'complete', 'content_pending']);
+    .in('status', ['shipped', 'posted']);
   const totalGiftedAllTime = (allTimeRows || []).reduce((sum, d) => {
     const products = (d.products_to_send as Product[]) || [];
     return sum + products.reduce((s, p) => s + (Number(p.price || 0) * Number(p.quantity || 1)), 0);

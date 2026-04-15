@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   if (!instagram_handle) return NextResponse.json({ error: 'Handle required' }, { status: 400 });
 
   const handle = instagram_handle.startsWith('@') ? instagram_handle : `@${instagram_handle}`;
-  const newStatus = status === 'watchlist' ? 'watchlist' : 'pending_review';
+  const newStatus = status === 'watchlist' ? 'watchlist' : (status || 'prospect');
 
   const { data, error } = await supabase.from('influencers').insert({
     instagram_handle: handle,
@@ -106,48 +106,56 @@ export async function PATCH(req: NextRequest) {
   let update: Record<string, unknown> = { updated_at: now };
   let logDetails: Record<string, unknown> = {};
 
-  if (action === 'approve') {
+  if (action === 'start_outreach') {
+    update.status = 'outreach';
+    update.status_changed_at = now;
+  } else if (action === 'move_to_negotiating') {
+    update.status = 'negotiating';
+    update.status_changed_at = now;
+  } else if (action === 'approve') {
     update.status = 'approved';
     update.status_changed_at = now;
-  } else if (action === 'decline') {
-    if (!fields.declined_reason) return NextResponse.json({ error: 'Reason required' }, { status: 400 });
-    update.status = 'declined';
-    update.status_changed_at = now;
-    update.declined_reason = fields.declined_reason;
-    logDetails = { reason: fields.declined_reason };
-  } else if (action === 'counter') {
-    if (!fields.counter_note) return NextResponse.json({ error: 'Counter note required' }, { status: 400 });
-    update.status = 'countered';
-    update.status_changed_at = now;
+    update.counter_note = null;
+  } else if (action === 'send_notes' || action === 'counter') {
+    if (!fields.counter_note) return NextResponse.json({ error: 'Note required' }, { status: 400 });
+    update.status = 'negotiating';
     update.counter_note = fields.counter_note;
-    update.declined_reason = fields.counter_note;
     logDetails = { note: fields.counter_note };
-  } else if (action === 'add_to_watchlist' || action === 'watchlist') {
-    update.status = 'watchlist';
+    // Append to notes thread
+    await supabase.from('influencer_notes').insert({
+      influencer_id: id, user_name: 'Ryan', user_role: 'admin', note_text: fields.counter_note,
+    });
+  } else if (action === 'pass' || action === 'decline') {
+    update.status = 'passed';
     update.status_changed_at = now;
-  } else if (action === 'content_pending') {
-    update.status = 'content_pending';
-    update.status_changed_at = now;
-  } else if (action === 'move_to_pending') {
-    update.status = 'pending_review';
-    update.status_changed_at = now;
-  } else if (action === 'mark_complete') {
-    update.status = 'complete';
-    update.status_changed_at = now;
-  } else if (action === 'resubmit') {
-    update.status = 'pending_review';
+    if (fields.declined_reason) update.declined_reason = fields.declined_reason;
+    logDetails = { reason: fields.declined_reason };
+  } else if (action === 'reopen') {
+    update.status = 'prospect';
     update.status_changed_at = now;
     update.declined_reason = null;
-    update.counter_note = null;
-    const editable = ['follower_count', 'engagement_rate', 'niche_tags', 'content_types', 'bio_notes', 'dm_context', 'products_to_send'];
-    for (const k of editable) if (fields[k] !== undefined) update[k] = fields[k];
-  } else if (action === 'mark_content_pending') {
-    update.status = 'content_pending';
+  } else if (action === 'move_to_watchlist' || action === 'add_to_watchlist' || action === 'watchlist') {
+    update.status = 'watchlist';
     update.status_changed_at = now;
+  } else if (action === 'move_to_prospect' || action === 'move_to_pending') {
+    update.status = 'prospect';
+    update.status_changed_at = now;
+  } else if (action === 'mark_posted' || action === 'log_content' || action === 'mark_complete') {
+    update.status = 'posted';
+    update.status_changed_at = now;
+    if (fields.content_urls !== undefined) update.content_urls = fields.content_urls;
+    if (fields.content_posted_date !== undefined) update.content_posted_date = fields.content_posted_date || now.slice(0, 10);
+    if (fields.content_type_posted !== undefined) update.content_type_posted = fields.content_type_posted;
+    logDetails = { urls: fields.content_urls };
+  } else if (action === 'resubmit') {
+    // Intern updates submission; status stays negotiating
+    update.status = 'negotiating';
+    const editable = ['follower_count', 'engagement_rate', 'niche_tags', 'content_types', 'bio_notes', 'dm_context', 'products_to_send', 'shipping_address'];
+    for (const k of editable) if (fields[k] !== undefined) update[k] = fields[k];
   } else if (action === 'set_deal') {
     update = {
       ...update,
-      status: 'deal',
+      status: 'approved',
       status_changed_at: now,
       deal_type: fields.deal_type,
       payment_amount: fields.payment_amount || 0,
@@ -163,19 +171,13 @@ export async function PATCH(req: NextRequest) {
     update.status = 'shipped';
     update.status_changed_at = now;
     if (fields.shopify_fulfillment_status) update.shopify_fulfillment_status = fields.shopify_fulfillment_status;
-  } else if (action === 'log_content') {
-    update.content_urls = fields.content_urls || [];
-    update.content_posted_date = fields.content_posted_date || now.slice(0, 10);
-    update.content_type_posted = fields.content_type_posted || [];
-    // Per spec: saving content finalizes to complete (unless mark_complete=false explicitly)
-    update.status = fields.mark_complete === false ? 'posted' : 'complete';
-    update.status_changed_at = now;
-    logDetails = { urls: fields.content_urls };
   } else if (action === 'update_fields') {
     const editable = [
       'follower_count', 'engagement_rate', 'niche_tags', 'content_types',
       'bio_notes', 'dm_context', 'already_contacted', 'profile_url',
-      'products_to_send', 'scraped_data', 'scraped_at',
+      'products_to_send', 'scraped_data', 'scraped_at', 'shipping_address',
+      'deal_type', 'payment_amount', 'deliverables', 'expected_post_date',
+      'discount_code', 'special_instructions', 'counter_note',
       'post_reach', 'post_impressions', 'post_engagement', 'post_shares', 'post_video_views',
     ];
     for (const k of editable) if (fields[k] !== undefined) update[k] = fields[k];

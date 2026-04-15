@@ -71,27 +71,26 @@ const NICHES = ['Orthodox/Frum', 'LDS/Mormon', 'Modest Fashion General', 'Hijabi
 const CONTENT_TYPES = ['Reels', 'Stories', 'Static Posts', 'TikTok'];
 
 const STATUS_META: Record<string, { label: string; bg: string; text: string; border?: string }> = {
-  pending_review: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200/80' },
-  countered: { label: 'Countered', bg: 'bg-amber-100', text: 'text-amber-900', border: 'border-amber-400' },
-  watchlist: { label: 'Watchlist', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/80' },
+  prospect: { label: 'Prospect', bg: 'bg-stone-100', text: 'text-stone-600', border: 'border-stone-200' },
+  outreach: { label: 'Outreach', bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200/80' },
+  negotiating: { label: 'Negotiating', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   approved: { label: 'Approved', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200/80' },
-  declined: { label: 'Declined', bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200/80' },
-  deal: { label: 'Deal', bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200/80' },
   shipped: { label: 'Shipped', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200/80' },
-  content_pending: { label: 'Content Pending', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200/80' },
-  posted: { label: 'Posted', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200/80' },
-  complete: { label: '✓ Complete', bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300' },
+  posted: { label: '✓ Posted', bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300' },
+  watchlist: { label: 'Watchlist', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/80' },
+  passed: { label: 'Passed', bg: 'bg-stone-50', text: 'text-stone-400', border: 'border-stone-200' },
 };
 
 const FILTERS = [
   { key: 'all', label: 'All' },
-  { key: 'pending_review', label: 'Pending' },
-  { key: 'countered', label: 'Countered' },
-  { key: 'watchlist', label: 'Watchlist' },
+  { key: 'prospect', label: 'Prospects' },
+  { key: 'outreach', label: 'Outreach' },
+  { key: 'negotiating', label: 'Negotiating' },
   { key: 'approved', label: 'Approved' },
-  { key: 'active', label: 'Active' },
-  { key: 'complete', label: 'Complete' },
-  { key: 'declined', label: 'Declined' },
+  { key: 'shipped', label: 'Shipped' },
+  { key: 'posted', label: 'Posted' },
+  { key: 'watchlist', label: 'Watchlist' },
+  { key: 'passed', label: 'Passed' },
 ];
 
 const COUNTER_QUICK_FILLS = [
@@ -235,7 +234,7 @@ export default function InfluencersPage() {
 
   const isOverdue = (r: Influencer): boolean => {
     if (!r.expected_post_date) return false;
-    if (!['shipped', 'content_pending'].includes(r.status)) return false;
+    if (r.status !== 'shipped') return false;
     return new Date(r.expected_post_date) < new Date();
   };
   const overdueCount = rows.filter(isOverdue).length;
@@ -260,9 +259,7 @@ export default function InfluencersPage() {
   if (!role) return <div className="min-h-screen bg-[var(--background)] flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading…</div>;
 
   const pipeline = stats?.pipeline || {};
-  const pendingCount = pipeline.pending_review || 0;
-  const activeCount = (pipeline.deal || 0) + (pipeline.shipped || 0) + (pipeline.content_pending || 0);
-  const contentPending = (pipeline.shipped || 0) + (pipeline.content_pending || 0);
+  const pendingCount = pipeline.prospect || 0;
   const watchlistCount = pipeline.watchlist || 0;
 
   return (
@@ -285,12 +282,13 @@ export default function InfluencersPage() {
           <section>
             <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Pipeline</div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <MetricCard label="Pending Review" value={String(pendingCount)} sub="awaiting approval" accent={pendingCount > 0 ? 'amber' : undefined} formula="COUNT status='pending_review'" />
-              <MetricCard label="Active Deals" value={String(activeCount)} sub="deal + shipped + content pending" accent="sky" formula="deal + shipped + content_pending" />
-              <MetricCard label="Content Pending" value={String(contentPending)}
-                sub={overdueCount > 0 ? `${overdueCount} overdue` : 'product shipped, awaiting post'}
+              <MetricCard label="Prospects" value={String(pipeline.prospect || 0)} sub="ready to reach out" accent={(pipeline.prospect || 0) > 0 ? 'amber' : undefined} formula="COUNT status='prospect'" />
+              <MetricCard label="Active Outreach" value={String((pipeline.outreach || 0) + (pipeline.negotiating || 0))} sub={`${pipeline.outreach || 0} outreach · ${pipeline.negotiating || 0} negotiating`} accent="sky" formula="outreach + negotiating" />
+              <MetricCard label="Ready to Ship" value={String(pipeline.approved || 0)} sub="approved, awaiting order" formula="COUNT status='approved'" />
+              <MetricCard label="Shipped" value={String(pipeline.shipped || 0)}
+                sub={overdueCount > 0 ? `${overdueCount} overdue` : 'awaiting post'}
                 accent={overdueCount > 0 ? 'red' : undefined}
-                formula="shipped + content_pending. Red when an expected_post_date has already passed." />
+                formula="COUNT status='shipped'. Red when expected_post_date has already passed." />
               <MetricCard label="Watchlist" value={String(watchlistCount)} sub="tracking, not outreached" accent="purple" formula="COUNT status='watchlist'" />
               <div className="hidden sm:block"><MetricCard label="Total Gifted" value={fmtMoney(stats?.allTime.totalGifted || 0)} sub={`${stats?.allTime.totalInfluencers || 0} total records`} formula="SUM(products_to_send price × qty) all time where shipped+" /></div>
               <div className="hidden sm:block"><MetricCard label="Posts Received" value={String(stats?.thisMonth.posts || 0)} sub="this month" formula="COUNT content_posted_date in current month" /></div>
@@ -301,8 +299,8 @@ export default function InfluencersPage() {
         {/* Filter pills */}
         <div className="flex items-center gap-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-2 overflow-x-auto whitespace-nowrap">
           {FILTERS.map(f => {
-            const count = f.key === 'active' ? activeCount : f.key === 'all' ? rows.length : (pipeline[f.key] || 0);
-            const showCount = f.key === 'pending_review' && pendingCount > 0;
+            const count = f.key === 'all' ? rows.length : (pipeline[f.key] || 0);
+            const showCount = f.key === 'prospect' && pendingCount > 0;
             return (
               <button key={f.key} onClick={() => setFilter(f.key)}
                 className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-colors inline-flex items-center gap-1.5 ${filter === f.key ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
@@ -850,6 +848,10 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
   };
 
   const createShopifyDraft = async () => {
+    if (!influencer.shipping_address || !(influencer.shipping_address as ShippingAddr).address1) {
+      flash('Enter shipping address first');
+      return;
+    }
     setBusy(true);
     const res = await fetch('/api/influencers/shopify-draft', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -858,7 +860,6 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
     const d = await res.json();
     if (res.ok) {
       flash(`Draft created: ${d.draft?.name}`);
-      // Auto-advance to shipped per spec
       await fetch('/api/influencers', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: influencer.id, action: 'mark_shipped', user_role: role }),
@@ -932,8 +933,9 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
   };
 
   const s = influencer.status;
-  const showDeal = ['approved', 'deal', 'shipped', 'content_pending', 'posted', 'complete'].includes(s);
-  const showContentSection = ['shipped', 'content_pending', 'posted', 'complete'].includes(s);
+  const showDeal = ['negotiating', 'approved', 'shipped', 'posted'].includes(s);
+  const showContentSection = ['shipped', 'posted'].includes(s);
+  const showShippingAddr = ['negotiating', 'approved', 'shipped'].includes(s);
   const scraped = influencer.scraped_data;
 
   return (
@@ -991,17 +993,16 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
           {/* Quick Actions Bar */}
           <QuickActions
             status={s} isAdmin={isAdmin} busy={busy}
+            onStartOutreach={() => act('start_outreach').then(ok => ok && flash('Outreach started'))}
+            onMoveNegotiating={() => act('move_to_negotiating').then(ok => ok && flash('Negotiating'))}
             onApprove={() => act('approve').then(ok => ok && flash('Approved ✓'))}
             onShowCounter={() => setShowCounter(true)}
             onShowDecline={() => setShowDecline(true)}
-            onWatchlist={() => act('add_to_watchlist').then(ok => ok && flash('On watchlist'))}
-            onMoveToPending={() => act('move_to_pending').then(ok => ok && flash('Moved to pending'))}
-            onSetUpDeal={() => setDealOpen(true)}
+            onWatchlist={() => act('move_to_watchlist').then(ok => ok && flash('On watchlist'))}
+            onMoveToPending={() => act('move_to_prospect').then(ok => ok && flash('Moved to prospect'))}
             onCreateOrder={createShopifyDraft}
-            onMarkShipped={() => act('mark_shipped').then(ok => ok && flash('Marked shipped'))}
-            onContentPending={() => act('mark_content_pending').then(ok => ok && flash('Content pending'))}
-            onLogContent={() => setContentOpen(true)}
-            onMarkComplete={() => act('mark_complete').then(ok => ok && flash('Complete ✓'))}
+            onMarkPosted={() => setContentOpen(true)}
+            onReopen={() => act('reopen').then(ok => ok && flash('Reopened'))}
           />
 
           {/* Counter inline */}
@@ -1017,8 +1018,8 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
               <textarea value={counterNote} onChange={e => setCounterNote(e.target.value)} rows={3} placeholder="What should the intern change?"
                 className="w-full p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
               <div className="flex gap-2">
-                <button onClick={async () => { if (!counterNote.trim()) return; const ok = await act('counter', { counter_note: counterNote }); if (ok) { flash('Counter sent'); setShowCounter(false); setCounterNote(''); } }}
-                  disabled={!counterNote.trim() || busy} className="flex-1 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50">Send Counter</button>
+                <button onClick={async () => { if (!counterNote.trim()) return; const ok = await act('send_notes', { counter_note: counterNote }); if (ok) { flash('Notes sent'); setShowCounter(false); setCounterNote(''); } }}
+                  disabled={!counterNote.trim() || busy} className="flex-1 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50">Send Notes</button>
                 <button onClick={() => setShowCounter(false)} className="px-4 py-2.5 text-sm text-[var(--muted-foreground)]">Cancel</button>
               </div>
             </div>
@@ -1170,6 +1171,16 @@ function DetailPanel({ role, influencer, onClose, onRefresh, flash }: {
                 </div>
               )}
             </section>
+          )}
+
+          {/* Shipping Address */}
+          {showShippingAddr && (
+            <ShippingAddressEditor influencer={influencer} readonly={s === 'shipped'}
+              onSave={async (addr) => {
+                const ok = await act('update_fields', { shipping_address: addr });
+                if (ok) flash('Address saved');
+                return ok;
+              }} />
           )}
 
           {/* Shopify Order */}
@@ -1330,33 +1341,44 @@ function Panel({ children }: { children: React.ReactNode }) {
 
 function QuickActions(props: {
   status: string; isAdmin: boolean; busy: boolean;
+  onStartOutreach: () => void; onMoveNegotiating: () => void;
   onApprove: () => void; onShowCounter: () => void; onShowDecline: () => void;
-  onWatchlist: () => void; onMoveToPending: () => void; onSetUpDeal: () => void;
-  onCreateOrder: () => void; onMarkShipped: () => void; onContentPending: () => void;
-  onLogContent: () => void; onMarkComplete: () => void;
+  onWatchlist: () => void; onMoveToPending: () => void;
+  onCreateOrder: () => void; onMarkPosted: () => void;
+  onReopen: () => void;
 }) {
   const { status: s, isAdmin, busy } = props;
   const Btn = (label: string, onClick: () => void, color: string) => (
-    <button onClick={onClick} disabled={busy}
+    <button key={label} onClick={onClick} disabled={busy}
       className={`py-2.5 px-3 rounded-xl text-xs font-semibold text-white disabled:opacity-50 ${color}`}>
       {label}
     </button>
   );
   const buttons: React.ReactNode[] = [];
-  if (isAdmin && (s === 'pending_review' || s === 'countered')) {
-    buttons.push(Btn('Approve ✓', props.onApprove, 'bg-emerald-600'));
-    buttons.push(Btn('Counter ↩', props.onShowCounter, 'bg-amber-500'));
-    buttons.push(Btn('Decline ✗', props.onShowDecline, 'bg-red-600'));
-    if (s === 'pending_review') buttons.push(Btn('Watchlist', props.onWatchlist, 'bg-purple-600'));
+
+  if (s === 'prospect') {
+    buttons.push(Btn('Start Outreach →', props.onStartOutreach, 'bg-sky-600'));
+    if (isAdmin) buttons.push(Btn('Watchlist', props.onWatchlist, 'bg-purple-600'));
+    if (isAdmin) buttons.push(Btn('Pass', props.onShowDecline, 'bg-stone-500'));
+  } else if (s === 'outreach') {
+    buttons.push(Btn('Move to Negotiating →', props.onMoveNegotiating, 'bg-amber-500'));
+    if (isAdmin) buttons.push(Btn('Pass', props.onShowDecline, 'bg-stone-500'));
+  } else if (s === 'negotiating') {
+    if (isAdmin) {
+      buttons.push(Btn('Approve ✓', props.onApprove, 'bg-emerald-600'));
+      buttons.push(Btn('Send Notes ↩', props.onShowCounter, 'bg-amber-500'));
+      buttons.push(Btn('Pass', props.onShowDecline, 'bg-stone-500'));
+    }
+  } else if (s === 'approved') {
+    if (isAdmin) buttons.push(Btn('Create Draft Order →', props.onCreateOrder, 'bg-emerald-600'));
+  } else if (s === 'shipped') {
+    buttons.push(Btn('Mark Posted ✓', props.onMarkPosted, 'bg-emerald-600'));
+  } else if (s === 'watchlist') {
+    if (isAdmin) buttons.push(Btn('Move to Prospect', props.onMoveToPending, 'bg-[var(--primary)] text-[var(--primary-foreground)]'));
+    if (isAdmin) buttons.push(Btn('Pass', props.onShowDecline, 'bg-stone-500'));
+  } else if (s === 'passed') {
+    if (isAdmin) buttons.push(Btn('Reopen', props.onReopen, 'bg-[var(--primary)] text-[var(--primary-foreground)]'));
   }
-  if (isAdmin && s === 'watchlist') {
-    buttons.push(Btn('Move to Pending', props.onMoveToPending, 'bg-[var(--primary)] text-[var(--primary-foreground)]'));
-  }
-  if (isAdmin && s === 'approved') buttons.push(Btn('Set Up Deal →', props.onSetUpDeal, 'bg-sky-600'));
-  if (isAdmin && s === 'deal') buttons.push(Btn('Create Order & Mark Shipped', props.onCreateOrder, 'bg-emerald-600'));
-  if (isAdmin && s === 'shipped') buttons.push(Btn('Content Pending', props.onContentPending, 'bg-orange-500'));
-  if (s === 'content_pending' || s === 'shipped') buttons.push(Btn('Log Content', props.onLogContent, 'bg-[var(--primary)] text-[var(--primary-foreground)]'));
-  if (isAdmin && s === 'posted') buttons.push(Btn('Mark Complete ✓', props.onMarkComplete, 'bg-emerald-600'));
 
   if (buttons.length === 0) return null;
   return <div className="flex flex-wrap gap-2">{buttons}</div>;
@@ -1443,5 +1465,79 @@ function ProductPicker({ products, setProducts }: { products: Product[]; setProd
         </div>
       )}
     </div>
+  );
+}
+
+/* ─── Shipping Address Editor ─── */
+
+function ShippingAddressEditor({ influencer, readonly, onSave }: {
+  influencer: Influencer; readonly: boolean; onSave: (addr: ShippingAddr) => Promise<boolean>;
+}) {
+  const a = influencer.shipping_address || {};
+  const [firstName, setFirstName] = useState(a.firstName || '');
+  const [lastName, setLastName] = useState(a.lastName || '');
+  const [address1, setAddress1] = useState(a.address1 || '');
+  const [address2, setAddress2] = useState(a.address2 || '');
+  const [city, setCity] = useState(a.city || '');
+  const [province, setProvince] = useState(a.province || '');
+  const [zip, setZip] = useState(a.zip || '');
+  const [phone, setPhone] = useState(a.phone || '');
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const markDirty = () => { if (!dirty) setDirty(true); };
+
+  if (readonly) {
+    return (
+      <section>
+        <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-2">Shipping Address</div>
+        <div className="bg-[var(--muted)] rounded-xl p-3 text-sm space-y-0.5">
+          {(firstName || lastName) && <div className="font-medium">{firstName} {lastName}</div>}
+          {address1 && <div>{address1}</div>}
+          {address2 && <div>{address2}</div>}
+          {(city || province || zip) && <div>{city}{city && (province || zip) ? ', ' : ''}{province} {zip}</div>}
+          {phone && <div className="text-[var(--muted-foreground)]">{phone}</div>}
+          {!address1 && <div className="text-xs text-[var(--muted-foreground)] italic">No address on file</div>}
+        </div>
+      </section>
+    );
+  }
+
+  const save = async () => {
+    setSaving(true);
+    const ok = await onSave({ firstName, lastName, address1, address2, city, province, zip, phone, country: 'US' });
+    setSaving(false);
+    if (ok) setDirty(false);
+  };
+
+  return (
+    <section>
+      <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-2">Shipping Address</div>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input placeholder="First Name" value={firstName} onChange={e => { setFirstName(e.target.value); markDirty(); }}
+            className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+          <input placeholder="Last Name" value={lastName} onChange={e => { setLastName(e.target.value); markDirty(); }}
+            className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+        </div>
+        <input placeholder="Address" value={address1} onChange={e => { setAddress1(e.target.value); markDirty(); }}
+          className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+        <input placeholder="Apt / Suite" value={address2} onChange={e => { setAddress2(e.target.value); markDirty(); }}
+          className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+        <div className="grid grid-cols-3 gap-2">
+          <input placeholder="City" value={city} onChange={e => { setCity(e.target.value); markDirty(); }}
+            className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+          <input placeholder="State" value={province} onChange={e => { setProvince(e.target.value); markDirty(); }}
+            className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+          <input placeholder="Zip" value={zip} onChange={e => { setZip(e.target.value); markDirty(); }}
+            className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+        </div>
+        <input placeholder="Phone (optional)" value={phone} onChange={e => { setPhone(e.target.value); markDirty(); }}
+          className="w-full p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm focus:outline-none focus:border-[var(--ring)]" />
+        <button onClick={save} disabled={!dirty || saving}
+          className="w-full py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-sm font-semibold disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save Address'}
+        </button>
+      </div>
+    </section>
   );
 }
