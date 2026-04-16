@@ -16,10 +16,18 @@ type MoneyFlow = {
 type Summary = {
   grossRevenue: number; netRevenue: number; totalRevenue: number;
   discounts: number; shipping: number; tax: number;
-  refundTotal: number; refundRate: number; orderCount: number; aov: number; shopifyFees: number;
+  shopifyRefunds: number; refundRate: number;
+  orderCount: number; aov: number; shopifyFees: number;
+  uniqueCustomers: number; repeatCustomers: number; repeatRate: number;
+  hasCogs: boolean; totalCogs: number; grossMargin: number; grossMarginPct: number;
 };
 type DailyPoint = { date: string; revenue: number; orders: number; refunds: number; fees: number };
-type OverviewResponse = { range: { from: string; to: string }; summary: Summary; daily: DailyPoint[]; lastSynced: string | null };
+type SyncCounts = { orders: number; refunds: number; transactions: number };
+type OverviewResponse = {
+  range: { from: string; to: string }; bucket: 'day' | 'week' | 'month';
+  summary: Summary; daily: DailyPoint[];
+  lastSynced: string | null; syncCounts: SyncCounts;
+};
 
 const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const fmtMoneyCents = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -99,8 +107,10 @@ export default function FinancialsPage() {
       const param = days === 'all' ? 'all' : String(days);
       const res = await fetch(`/api/financials/sync?days=${param}`);
       const json = await res.json();
-      if (json.success) { showToast(`Synced ${json.orders} orders, ${json.refunds} refunds, ${json.transactions} fees`); await fetchOverview(); }
-      else showToast(`Sync failed: ${json.error}`);
+      if (json.success) {
+        showToast(`Synced ${json.orders} orders, ${json.refunds} refunds, ${json.products || 0} products, ${json.lineItems || 0} line items`);
+        await fetchOverview();
+      } else showToast(`Sync failed: ${json.error}`);
     } catch (e) { showToast(`Sync error: ${e instanceof Error ? e.message : 'unknown'}`); }
     finally { setSyncing(false); }
   };
@@ -124,6 +134,7 @@ export default function FinancialsPage() {
 
   const s = data?.summary;
   const daily = data?.daily || [];
+  const sc = data?.syncCounts;
 
   const syncButton = (
     <button onClick={() => sync(30)} disabled={syncing}
@@ -143,13 +154,14 @@ export default function FinancialsPage() {
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <div>
               <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Financial Overview</h2>
-              <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">Last synced: {fmtSynced(data?.lastSynced || null)}</p>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                Last synced: {fmtSynced(data?.lastSynced || null)}
+                {sc && <span> · {sc.orders.toLocaleString()} orders · {sc.refunds.toLocaleString()} refunds · {sc.transactions.toLocaleString()} transactions</span>}
+              </p>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => sync(90)} disabled={syncing}
-                className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50">Backfill 90d</button>
-              <button onClick={() => sync('all')} disabled={syncing}
-                className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50">Backfill ALL</button>
+              <button onClick={() => sync(90)} disabled={syncing} className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50">Backfill 90d</button>
+              <button onClick={() => sync('all')} disabled={syncing} className="text-[11px] tracking-wider uppercase text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50">Backfill ALL</button>
             </div>
           </div>
           <DateRangeSelector preset={preset} onPresetChange={setPreset} customFrom={customFrom} customTo={customTo}
@@ -160,31 +172,54 @@ export default function FinancialsPage() {
 
         {s && (
           <>
-            {/* Revenue Cards */}
+            {/* ─── 12 Info Cards ─── */}
             <section>
               <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Revenue</div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                <MetricCard label="Net Revenue" value={fmtMoney(s.netRevenue)} sub={`${s.orderCount} orders`} accent="emerald"
-                  formula="grossRevenue − refunds. Net revenue is what you actually kept after processing returns." />
-                <MetricCard label="Gross Revenue" value={fmtMoney(s.grossRevenue)} sub="Before refunds"
-                  formula="SUM(subtotal_price) across all non-cancelled, non-test orders in range. Excludes tax and shipping." />
-                <MetricCard label="Refunds" value={fmtMoney(s.refundTotal)} sub={fmtPct(s.refundRate)} negative
-                  formula="SUM(amount) from shopify_refunds in range. Rate = refunds / grossRevenue × 100." />
-                <MetricCard label="Avg Order" value={fmtMoneyCents(s.aov)} sub="Incl. tax + ship"
-                  formula="totalRevenue / orderCount. Average total paid per order including tax and shipping." />
-                <MetricCard label="Discounts" value={fmtMoney(s.discounts)} sub="Codes + promos" negative
-                  formula="SUM(total_discounts). Total discount dollars applied across all orders in range." />
-                <MetricCard label="Shipping" value={fmtMoney(s.shipping)} sub="Collected"
-                  formula="SUM(total_shipping). Shipping charged to customers (not what you paid carriers)." />
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <MetricCard label="Gross Revenue" value={fmtMoney(s.grossRevenue)} sub={`${s.orderCount.toLocaleString()} orders`}
+                  formula="SUM(subtotal_price) from non-cancelled, non-test orders in range." />
+                <MetricCard label="Net Revenue" value={fmtMoney(s.netRevenue)} sub="after Shopify refunds" accent="emerald"
+                  formula="Gross Revenue − SUM(total_refunded). Only actual cash refunds via Shopify, not return requests." />
+                <MetricCard label="Refunded (Cash)" value={fmtMoney(s.shopifyRefunds)} sub={fmtPct(s.refundRate)} negative
+                  formula="SUM(total_refunded) from shopify_orders. Actual cash returned to customers via Shopify." />
+                <MetricCard label="Refund Rate" value={fmtPct(s.refundRate)} sub="of gross revenue"
+                  formula="shopifyRefunds / grossRevenue × 100." />
               </div>
             </section>
 
-            {/* Revenue Chart */}
+            <section>
+              <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Customers & Orders</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <MetricCard label="Orders" value={s.orderCount.toLocaleString()} sub="in range" formula="COUNT non-cancelled, non-test orders." />
+                <MetricCard label="AOV" value={fmtMoneyCents(s.aov)} sub="avg total price" formula="totalRevenue / orderCount." />
+                <MetricCard label="Unique Customers" value={s.uniqueCustomers.toLocaleString()} sub={`${s.repeatCustomers.toLocaleString()} repeat`}
+                  formula="COUNT(DISTINCT customer_email)." />
+                <MetricCard label="Repeat Rate" value={fmtPct(s.repeatRate)} sub={`${s.repeatCustomers} of ${s.uniqueCustomers}`}
+                  formula="Customers with 2+ orders / unique customers × 100." />
+              </div>
+            </section>
+
+            <section>
+              <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Costs & Margins</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <MetricCard label="Discounts" value={fmtMoney(s.discounts)} sub="codes + promos" negative formula="SUM(total_discounts)." />
+                <MetricCard label="Shipping Collected" value={fmtMoney(s.shipping)} sub="from customers" formula="SUM(total_shipping)." />
+                <MetricCard label="COGS" value={s.hasCogs ? fmtMoney(s.totalCogs) : '—'} sub={s.hasCogs ? 'cost of goods' : 'add inventory scope'}
+                  formula={s.hasCogs ? 'SUM(unit_cost × quantity) from shopify_variants × line_items.' : 'Requires read_inventory scope on Shopify app.'} />
+                <MetricCard label="Gross Margin" value={s.hasCogs ? fmtMoney(s.grossMargin) : '—'} sub={s.hasCogs ? fmtPct(s.grossMarginPct) : 'needs COGS'}
+                  accent={s.hasCogs ? 'emerald' : undefined}
+                  formula={s.hasCogs ? 'Gross Revenue − COGS.' : 'Enable COGS to calculate margin.'} />
+              </div>
+            </section>
+
+            {/* ─── Revenue Chart (bucketed) ─── */}
             <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <div className="flex items-center">
-                  <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Daily Revenue vs Refunds</h3>
-                  <Tooltip text="Daily revenue (subtotal_price) from shopify_orders stacked vs daily refund totals. Green is what came in, red is what went back out." />
+                  <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">
+                    Revenue vs Refunds ({data?.bucket === 'month' ? 'Monthly' : data?.bucket === 'week' ? 'Weekly' : 'Daily'})
+                  </h3>
+                  <Tooltip text={`Aggregated by ${data?.bucket}. Revenue = subtotal_price. Refunds from shopify_refunds. Auto-switches: daily ≤90d, weekly 90-365d, monthly >365d.`} />
                 </div>
               </div>
               {daily.length === 0 ? (
@@ -194,9 +229,12 @@ export default function FinancialsPage() {
                   <ResponsiveContainer>
                     <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                      <XAxis dataKey="date" stroke="var(--muted-foreground)" fontSize={10} tickFormatter={(d: string) => d.slice(5)} />
-                      <YAxis stroke="var(--muted-foreground)" fontSize={11} tickFormatter={(v) => { const n = Number(v); return `$${n >= 1000 ? `${Math.round(n / 1000)}k` : n}`; }} />
-                      <RTooltip contentStyle={{ background: 'var(--foreground)', border: 'none', borderRadius: 8, color: 'var(--background)', fontSize: 12 }} formatter={(v) => fmtMoneyCents(Number(v))} />
+                      <XAxis dataKey="date" stroke="var(--muted-foreground)" fontSize={10}
+                        tickFormatter={(d: string) => data?.bucket === 'month' ? d : d.slice(5)} />
+                      <YAxis stroke="var(--muted-foreground)" fontSize={11}
+                        tickFormatter={(v: number) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} />
+                      <RTooltip contentStyle={{ background: 'var(--foreground)', border: 'none', borderRadius: 8, color: 'var(--background)', fontSize: 12 }}
+                        formatter={(v) => fmtMoneyCents(Number(v))} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       <Bar dataKey="revenue" fill="#10b981" name="Revenue" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="refunds" fill="#f87171" name="Refunds" radius={[4, 4, 0, 0]} />
@@ -206,28 +244,28 @@ export default function FinancialsPage() {
               )}
             </section>
 
-            {/* Return Impact */}
+            {/* ─── Return Impact ─── */}
             {money && (
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Return Impact on Revenue</div>
-                  <Tooltip text="Real P&L contribution of returns: what you paid back, what you kept, and what you earned in fees." />
+              <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+                <div className="flex items-center mb-3">
+                  <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Return Impact on Revenue</h3>
+                  <Tooltip text="Shows how returns affect your bottom line. Shopify Refunds = actual cash back. Credits = gift card liability. Rejected = money kept." />
                 </div>
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
-                  <PLRow label="Gross Revenue" value={s.grossRevenue} bold formula="SUM(subtotal_price) from shopify_orders in range. Excludes tax, shipping, cancellations, and test orders." />
-                  <PLRow label="Cash Refunded" value={-money.cashRefunded} formula="SUM(final_amount) WHERE outcome='refund'. Falls back to subtotal for records without final_amount." />
-                  <PLRow label="Credits Issued" value={-money.creditsIssued} sub="liability, not cash out" formula="SUM(final_amount) WHERE outcome='credit'. Not cash, but gift card liability to customers." />
+                <div className="space-y-2 text-sm">
+                  <Row label="Gross Revenue" value={s.grossRevenue} bold />
+                  <Row label="Cash Refunded (Shopify)" value={-s.shopifyRefunds} sub={fmtPct(s.refundRate)} />
+                  <Row label="Store Credits Issued" value={-money.creditsIssued} sub="not cash, liability" />
                   <div className="border-t border-[var(--border)]" />
-                  <PLRow label="Net Revenue After Returns" value={s.grossRevenue - money.cashRefunded - money.creditsIssued} bold formula="Gross − Cash Refunded − Credits Issued." />
-                  <PLRow label="Restocking Fees Earned" value={money.feesCollected} formula="SUM(total_fees) WHERE outcome='refund'. Falls back to subtotal − final_amount for older records. 5% on refunds." />
-                  <PLRow label="Rejected Returns (kept)" value={money.rejectedValue} sub={`revenue you didn't have to give back`} formula="SUM(subtotal) WHERE outcome='rejected'. Money retained when a return was denied." />
+                  <Row label="Net Revenue" value={s.netRevenue} bold />
+                  <Row label="Restocking Fees Earned" value={money.feesCollected} />
+                  <Row label="Returns Rejected (kept)" value={money.rejectedValue} sub="customer got nothing back" />
                   <div className="border-t-2 border-[var(--foreground)]/20" />
-                  <PLRow label="Adjusted Net After Returns" value={s.grossRevenue - money.cashRefunded - money.creditsIssued + money.feesCollected} bold accent formula="Net Revenue After Returns + Restocking Fees. Real top-line after all return flows." />
+                  <Row label="Adjusted Net" value={s.netRevenue + money.feesCollected} bold accent />
                 </div>
               </section>
             )}
 
-            {/* Product Performance */}
+            {/* ─── Product Performance ─── */}
             <ProductBreakdown range={range} />
           </>
         )}
@@ -236,16 +274,15 @@ export default function FinancialsPage() {
   );
 }
 
-function PLRow({ label, value, bold, sub, accent, formula }: { label: string; value: number; bold?: boolean; sub?: string; accent?: boolean; formula?: string }) {
+function Row({ label, value, bold, sub, accent }: { label: string; value: number; bold?: boolean; sub?: string; accent?: boolean }) {
   const isNeg = value < 0;
   return (
     <div className="flex items-center justify-between">
-      <div className="flex items-center">
-        <span className={`text-sm ${bold ? 'font-semibold text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>{label}</span>
-        {formula && <Tooltip text={formula} />}
-        {sub && <span className="text-[11px] text-[var(--muted-foreground)] ml-2">{sub}</span>}
+      <div className="flex items-center gap-2">
+        <span className={`${bold ? 'font-semibold text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>{label}</span>
+        {sub && <span className="text-[10px] text-[var(--muted-foreground)]">{sub}</span>}
       </div>
-      <span className={`text-sm font-semibold ${accent ? (value >= 0 ? 'text-emerald-600' : 'text-red-600') : isNeg ? 'text-red-500' : 'text-[var(--foreground)]'}`}>
+      <span className={`font-semibold tabular-nums ${accent ? (value >= 0 ? 'text-emerald-600' : 'text-red-600') : isNeg ? 'text-red-500' : 'text-[var(--foreground)]'}`}>
         {isNeg ? `-${fmtMoney(Math.abs(value))}` : fmtMoney(value)}
       </span>
     </div>
@@ -291,7 +328,7 @@ function ProductBreakdown({ range }: { range: { from: string; to: string } }) {
     <section>
       <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Product Performance</div>
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-8 text-center text-sm text-[var(--muted-foreground)]">
-        No product data in this range. Run <b>Backfill ALL</b> in the header to pull all Shopify orders + products.
+        No line-item data. Click <b>Backfill ALL</b> to pull product-level data from Shopify.
       </div>
     </section>
   );
@@ -306,24 +343,16 @@ function ProductBreakdown({ range }: { range: { from: string; to: string } }) {
     <section>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Product Performance</div>
-        <Tooltip text="Top products by revenue in this date range. COGS pulled from Shopify variant unit_cost. Returns matched by product title from return_items." />
+        <Tooltip text="Top products by revenue. COGS from variant unit_cost. Returns matched by product_name from return_items table." />
         <span className="ml-auto text-[10px] text-[var(--muted-foreground)]">
-          {data.totals.productsWithCogs}/{data.totals.productsTotal} products have COGS data
+          {data.totals.productsWithCogs}/{data.totals.productsTotal} with COGS
         </span>
       </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-        <MetricCard label="Total Revenue" value={fmtMoney(data.totals.revenue)} sub="top 50 products" />
-        <MetricCard label="Total COGS" value={fmtMoney(data.totals.cogs)} sub="cost of goods" />
-        <MetricCard label="Gross Margin" value={fmtMoney(data.totals.margin)} sub={`${data.totals.marginPct}%`} accent="emerald" />
-        <MetricCard label="Products" value={String(data.totals.productsTotal)} sub="with sales in range" />
-      </div>
-
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm overflow-x-auto">
-        <table className="w-full min-w-[700px]">
+        <table className="w-full min-w-[650px]">
           <thead>
             <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
-              <th className="pl-4 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Product</th>
+              <th className="pl-4 pr-2 py-2 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Product</th>
               <Th label="Units" k="units_sold" sk={sortKey} on={setSortKey} />
               <Th label="Revenue" k="revenue" sk={sortKey} on={setSortKey} />
               <Th label="COGS" k="cogs" sk={sortKey} on={setSortKey} />
@@ -333,21 +362,20 @@ function ProductBreakdown({ range }: { range: { from: string; to: string } }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((p, i) => {
-              const marginPct = p.revenue > 0 ? (p.margin / p.revenue) * 100 : 0;
-              const returnTone = p.return_rate >= 30 ? 'text-red-600 font-semibold' : p.return_rate >= 15 ? 'text-amber-700' : 'text-[var(--muted-foreground)]';
+            {sorted.slice(0, 20).map((p, i) => {
+              const mPct = p.revenue > 0 ? (p.margin / p.revenue) * 100 : 0;
+              const rTone = p.return_rate >= 30 ? 'text-red-600 font-semibold' : p.return_rate >= 15 ? 'text-amber-700' : 'text-[var(--muted-foreground)]';
               return (
                 <tr key={p.product_id || p.title} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--muted)]/20' : ''}`}>
-                  <td className="pl-4 pr-2 py-2.5 text-sm text-[var(--foreground)] truncate max-w-[280px]" title={p.title}>{p.title}</td>
-                  <td className="px-2 py-2.5 text-right text-sm tabular-nums">{p.units_sold}</td>
-                  <td className="px-2 py-2.5 text-right text-sm tabular-nums font-semibold">{fmtMoney(p.revenue)}</td>
-                  <td className="px-2 py-2.5 text-right text-sm tabular-nums text-[var(--muted-foreground)]">{p.cost_per_unit !== null ? fmtMoney(p.cogs) : '—'}</td>
-                  <td className={`px-2 py-2.5 text-right text-sm tabular-nums ${p.cost_per_unit !== null ? 'text-emerald-700 font-semibold' : 'text-[var(--muted-foreground)]'}`}>
-                    {p.cost_per_unit !== null ? `${fmtMoney(p.margin)}` : '—'}
-                    {p.cost_per_unit !== null && <span className="text-[10px] text-[var(--muted-foreground)] ml-1">({marginPct.toFixed(0)}%)</span>}
+                  <td className="pl-4 pr-2 py-2 text-sm text-[var(--foreground)] truncate max-w-[260px]" title={p.title}>{p.title}</td>
+                  <td className="px-2 py-2 text-right text-sm tabular-nums">{p.units_sold}</td>
+                  <td className="px-2 py-2 text-right text-sm tabular-nums font-semibold">{fmtMoney(p.revenue)}</td>
+                  <td className="px-2 py-2 text-right text-sm tabular-nums text-[var(--muted-foreground)]">{p.cost_per_unit !== null ? fmtMoney(p.cogs) : '—'}</td>
+                  <td className={`px-2 py-2 text-right text-sm tabular-nums ${p.cost_per_unit !== null ? 'text-emerald-700 font-semibold' : 'text-[var(--muted-foreground)]'}`}>
+                    {p.cost_per_unit !== null ? `${fmtMoney(p.margin)} (${mPct.toFixed(0)}%)` : '—'}
                   </td>
-                  <td className="px-2 py-2.5 text-right text-sm tabular-nums text-[var(--muted-foreground)]">{p.units_returned || '—'}</td>
-                  <td className={`px-2 pr-4 py-2.5 text-right text-sm tabular-nums ${returnTone}`}>{p.units_returned > 0 ? `${p.return_rate}%` : '—'}</td>
+                  <td className="px-2 py-2 text-right text-sm tabular-nums text-[var(--muted-foreground)]">{p.units_returned || '—'}</td>
+                  <td className={`px-2 pr-4 py-2 text-right text-sm tabular-nums ${rTone}`}>{p.units_returned > 0 ? `${p.return_rate}%` : '—'}</td>
                 </tr>
               );
             })}
@@ -362,7 +390,7 @@ function Th({ label, k, sk, on }: { label: string; k: keyof ProductRow; sk: keyo
   const active = sk === k;
   return (
     <th onClick={() => on(k)}
-      className={`px-2 py-2.5 text-[11px] font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] text-right ${active ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
+      className={`px-2 py-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--foreground)] text-right ${active ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
       {label}{active && ' ↓'}
     </th>
   );
