@@ -17,7 +17,7 @@ export function middleware(req: NextRequest) {
   // app.missfinchnyc.com — only allow /admin and /api
   if (host.startsWith('app.')) {
     if (path === '/') {
-      return NextResponse.rewrite(new URL('/admin', req.url));
+      return NextResponse.redirect(new URL('/admin/home', req.url));
     }
     if (path.startsWith('/returns')) {
       return NextResponse.redirect(new URL('/', req.url));
@@ -29,6 +29,7 @@ export function middleware(req: NextRequest) {
   if (role === 'intern' && path.startsWith('/admin') && !path.startsWith('/admin/influencers')) {
     return NextResponse.redirect(new URL('/admin/influencers', req.url));
   }
+
 
   return NextResponse.next();
 }
