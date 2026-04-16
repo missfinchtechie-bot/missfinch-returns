@@ -84,7 +84,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
-      <Nav active={'returns' as 'returns'} />
+      <Nav active="home" />
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
         <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Dashboard</h2>
 
