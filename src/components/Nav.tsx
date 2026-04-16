@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 
-type Page = 'returns' | 'messages' | 'financials' | 'analytics' | 'influencers';
+type Page = 'home' | 'returns' | 'messages' | 'financials' | 'analytics' | 'influencers';
 type Role = 'admin' | 'intern';
 
 const LINKS: { key: Page; label: string; href: string; adminOnly: boolean }[] = [
+  { key: 'home', label: 'Home', href: '/admin/home', adminOnly: true },
   { key: 'returns', label: 'Returns', href: '/admin', adminOnly: true },
   { key: 'messages', label: 'Messages', href: '/admin/messages', adminOnly: true },
   { key: 'financials', label: 'Financials', href: '/admin/financials', adminOnly: true },
