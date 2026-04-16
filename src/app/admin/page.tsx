@@ -14,7 +14,15 @@ type Return = {
   label_url: string | null; customer_shipped: string | null; label_sent: string | null;
 };
 
-type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; lost: number; pendingRefund: number; pendingRefundGross: number; pendingRefundNet: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number; backlogOwed: number; totalOwed: number; processedThisMonth: number; processedThisMonthValue: number };
+type PeriodStats = {
+  totalReturns: number; totalReturnValue: number;
+  totalRefunded: number; refundedCount: number; avgRefund: number;
+  totalCredited: number; creditedCount: number;
+  totalRejected: number; rejectedCount: number;
+  totalLost: number; lostCount: number;
+  feesCollected: number; rejectionRate: number; completedCount: number;
+};
+type Stats = { inbox: number; shipping: number; old: number; done: number; flagged: number; all: number; lost: number; pendingRefund: number; pendingRefundGross: number; pendingRefundNet: number; pendingCredit: number; inTransitValue: number; processedThisWeek: number; backlogOwed: number; totalOwed: number; processedThisMonth: number; processedThisMonthValue: number; period?: PeriodStats };
 
 const TABS = [
   { key: 'all', label: 'All', icon: '☰' },
@@ -336,6 +344,48 @@ export default function AdminDashboard() {
               <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">${stats.processedThisMonthValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} paid out</div>
             </div>
           </div>
+
+          {/* Period aggregates — respect the date range selector above the table */}
+          {stats.period && (
+            <>
+              <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mt-4 mb-2">
+                In Selected Range
+                {stats.period.totalReturns > 0 && <span className="ml-2 text-[var(--muted-foreground)]/70">· {stats.period.totalReturns} returns · ${stats.period.totalReturnValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} gross</span>}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="bg-[var(--card)] border border-[var(--border)] border-l-4 border-l-red-400 rounded-xl px-4 py-3 shadow-sm">
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Refunded</div>
+                  <div className="text-lg font-bold text-red-600 font-heading mt-0.5">${stats.period.totalRefunded.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{stats.period.refundedCount} returns</div>
+                </div>
+                <div className="bg-[var(--card)] border border-[var(--border)] border-l-4 border-l-emerald-400 rounded-xl px-4 py-3 shadow-sm">
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Credited</div>
+                  <div className="text-lg font-bold text-emerald-600 font-heading mt-0.5">${stats.period.totalCredited.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{stats.period.creditedCount} returns</div>
+                </div>
+                <div className="bg-[var(--card)] border border-[var(--border)] border-l-4 border-l-stone-400 rounded-xl px-4 py-3 shadow-sm">
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Rejected</div>
+                  <div className="text-lg font-bold text-stone-600 font-heading mt-0.5">${stats.period.totalRejected.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{stats.period.rejectedCount} returns (kept)</div>
+                </div>
+                <div className="bg-[var(--card)] border border-[var(--border)] border-l-4 border-l-purple-400 rounded-xl px-4 py-3 shadow-sm">
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Lost</div>
+                  <div className="text-lg font-bold text-purple-600 font-heading mt-0.5">${stats.period.totalLost.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{stats.period.lostCount} never arrived</div>
+                </div>
+                <div className="bg-[var(--card)] border border-[var(--border)] border-l-4 border-l-emerald-500 rounded-xl px-4 py-3 shadow-sm">
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Fees Collected</div>
+                  <div className="text-lg font-bold text-emerald-700 font-heading mt-0.5">${stats.period.feesCollected.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">5% restock on refunds</div>
+                </div>
+                <div className="bg-[var(--card)] border border-[var(--border)] border-l-4 border-l-amber-400 rounded-xl px-4 py-3 shadow-sm">
+                  <div className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Rejection Rate</div>
+                  <div className="text-lg font-bold text-amber-700 font-heading mt-0.5">{stats.period.rejectionRate}%</div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{stats.period.rejectedCount} of {stats.period.completedCount} completed</div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
