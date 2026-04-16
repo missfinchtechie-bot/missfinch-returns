@@ -209,10 +209,36 @@ const STAT_TONES: Record<string, { border: string; value: string }> = {
 function StatCard({ label, value, sub, tone, formula }: { label: string; value: string; sub?: string; tone: keyof typeof STAT_TONES; formula?: string }) {
   const t = STAT_TONES[tone];
   return (
-    <div className={`bg-[var(--card)] border border-[var(--border)] border-l-4 ${t.border} rounded-xl p-4 shadow-sm`} title={formula}>
-      <p className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
-      <p className={`font-heading text-2xl font-semibold mt-1 ${t.value}`}>{value}</p>
-      {sub && <p className="text-[11px] mt-1 text-[var(--muted-foreground)]">{sub}</p>}
+    <div className={`bg-[var(--card)] border border-[var(--border)] border-l-4 ${t.border} rounded-xl p-3 shadow-sm`} title={formula}>
+      <p className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">{label}</p>
+      <p className={`font-heading text-xl font-semibold mt-0.5 ${t.value}`}>{value}</p>
+      {sub && <p className="text-[10px] mt-0.5 text-[var(--muted-foreground)]">{sub}</p>}
+    </div>
+  );
+}
+
+/* ─── Pipeline funnel bar ─── */
+
+function PipelineBar({ pipeline, total, onFilter }: { pipeline: Record<string, number>; total: number; onFilter: (s: string) => void }) {
+  const stages = ['prospect', 'outreach', 'negotiating', 'approved', 'shipped', 'posted']
+    .map(k => ({ key: k, count: pipeline[k] || 0 }))
+    .filter(s => s.count > 0);
+  const t = total || 1;
+  if (stages.length === 0) return null;
+  return (
+    <div className="flex h-7 rounded-xl overflow-hidden border border-[var(--border)]">
+      {stages.map(s => {
+        const pct = (s.count / t) * 100;
+        const sm = STATUS_META[s.key];
+        return (
+          <button key={s.key} onClick={() => onFilter(s.key)}
+            className={`${sm.bar} hover:opacity-90 transition-opacity flex items-center justify-center min-w-0`}
+            style={{ width: `${pct}%` }}
+            title={`${sm.label}: ${s.count}`}>
+            {pct > 12 && <span className="text-[10px] text-white font-semibold truncate px-1">{sm.label} {s.count}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -274,6 +300,24 @@ export default function InfluencersPage() {
   }, [filter]);
 
   useEffect(() => { if (authed) fetchAll(); }, [authed, fetchAll]);
+
+  const fetchScrape = async (id: string, handle: string) => {
+    flash(`Scraping ${handle}…`);
+    const res = await fetch(`/api/influencers/scrape?handle=${encodeURIComponent(handle)}`);
+    const d = await res.json();
+    if (d.profile) {
+      await fetch('/api/influencers', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id, action: 'rescrape',
+          scraped_data: d.profile, scraped_at: new Date().toISOString(),
+          follower_count: d.profile.followersCount, engagement_rate: d.profile.engagementRate,
+        }),
+      });
+      flash(`✓ ${handle}`);
+      fetchAll();
+    } else flash('Scrape failed');
+  };
 
   const selected = useMemo(() => rows.find(r => r.id === selectedId) || null, [rows, selectedId]);
 
@@ -366,37 +410,40 @@ export default function InfluencersPage() {
           </section>
         )}
 
-        {/* Filter pills */}
-        <div className="flex items-center gap-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-2 overflow-x-auto whitespace-nowrap">
-          {FILTERS.map(f => {
-            const count = f.key === 'all' ? rows.length : (pipeline[f.key] || 0);
-            const sm = STATUS_META[f.key];
-            const isActive = filter === f.key;
-            return (
-              <button key={f.key} onClick={() => setFilter(f.key)}
-                className={`text-[11px] sm:text-xs tracking-wider uppercase px-3 py-1.5 rounded-md transition-all inline-flex items-center gap-1.5 ${isActive ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold shadow-sm' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
-                {f.label}
-                {count > 0 && (
-                  <span className={`text-[10px] font-semibold rounded-full min-w-[18px] px-1.5 ${
-                    isActive ? 'bg-[var(--primary-foreground)]/20 text-[var(--primary-foreground)]' :
-                    sm ? `${sm.bg} ${sm.text}` : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
-                  }`}>{count}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Pipeline funnel bar */}
+        {role === 'admin' && rows.length > 0 && (
+          <PipelineBar pipeline={pipeline} total={rows.length} onFilter={setFilter} />
+        )}
 
-        {/* Search + Add */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="relative flex-1 sm:max-w-lg">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search handles, names, niches…"
-              className="w-full py-2.5 px-4 pl-9 bg-[var(--card)] border border-[var(--border)] rounded-xl text-sm focus:outline-none focus:border-[var(--ring)]" />
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-xs">🔍</span>
+        {/* Filter pills + search + add — single row */}
+        <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap">
+          <div className="flex items-center gap-1 bg-[var(--card)] border border-[var(--border)] rounded-xl p-1.5 overflow-x-auto whitespace-nowrap min-w-0 flex-1">
+            {FILTERS.map(f => {
+              const count = f.key === 'all' ? rows.length : (pipeline[f.key] || 0);
+              const sm = STATUS_META[f.key];
+              const isActive = filter === f.key;
+              return (
+                <button key={f.key} onClick={() => setFilter(f.key)}
+                  className={`text-[10px] sm:text-[11px] tracking-wider uppercase px-2.5 py-1 rounded-md transition-all inline-flex items-center gap-1 ${isActive ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold shadow-sm' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]'}`}>
+                  {f.label}
+                  {count > 0 && (
+                    <span className={`text-[9px] font-semibold rounded-full min-w-[16px] px-1 ${
+                      isActive ? 'bg-[var(--primary-foreground)]/20' :
+                      sm ? `${sm.bg} ${sm.text}` : 'bg-[var(--muted)]'
+                    }`}>{count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="relative flex-1 lg:flex-initial lg:w-64">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search handles, names…"
+              className="w-full py-2 px-3 pl-8 bg-[var(--card)] border border-[var(--border)] rounded-xl text-sm focus:outline-none focus:border-[var(--ring)]" />
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-xs">🔍</span>
           </div>
           <button onClick={() => setShowForm(true)}
-            className="sm:ml-auto text-[11px] tracking-wider uppercase font-semibold px-3.5 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity inline-flex items-center gap-1.5">
-            <span className="text-sm">+</span> New Influencer
+            className="text-[11px] tracking-wider uppercase font-semibold px-3 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 inline-flex items-center gap-1 whitespace-nowrap">
+            <span className="text-sm">+</span> New
           </button>
         </div>
 
@@ -421,51 +468,62 @@ export default function InfluencersPage() {
         ) : (
           <>
             <div className="hidden md:block bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-sm">
-              <table className="w-full">
+              <table className="w-full table-fixed">
                 <thead>
                   <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
-                    <th className="pl-5 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Handle</th>
-                    <SortTh label="Followers" k="followers" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="w-[90px]" />
-                    <SortTh label="Engage" k="engagement" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="w-[80px]" />
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[180px]">Niche</th>
-                    <SortTh label="Collabs" k="collabs" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="center" w="w-[80px]" />
-                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[130px]">Latest</th>
-                    <th className="hidden lg:table-cell px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[160px]">Next Action</th>
-                    <SortTh label="Updated" k="updated" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="pr-5 w-[80px]" />
+                    <th className="pl-5 pr-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[220px]">Handle</th>
+                    <SortTh label="Followers" k="followers" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="w-[80px]" />
+                    <SortTh label="Engage" k="engagement" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="w-[70px]" />
+                    <th className="hidden lg:table-cell px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[130px]">Niche</th>
+                    <SortTh label="Collabs" k="collabs" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="center" w="w-[70px]" />
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right w-[70px]">Pay</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[100px]">Latest</th>
+                    <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[140px]">Next Action</th>
+                    <SortTh label="Activity" k="updated" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="pr-5 w-[70px]" />
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedRows.map((r, i) => (
-                    <tr key={r.id} onClick={() => setSelectedId(r.id)}
-                      className={`cursor-pointer hover:bg-[var(--accent)]/40 transition-colors border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--muted)]/20' : ''}`}>
-                      <td className="pl-5 pr-2 py-3">
-                        <a href={igUrl(r.instagram_handle)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                          title={r.bio || undefined}
-                          className="text-sm font-semibold text-[var(--foreground)] hover:text-sky-600 hover:underline">{r.instagram_handle}</a>
-                        {r.full_name && <div className="text-[10px] text-[var(--muted-foreground)] truncate max-w-[180px]">{r.full_name}</div>}
-                      </td>
-                      <td className={`px-2 py-3 text-right text-sm tabular-nums ${followersTone(r.follower_count)}`}>{fmtFollowers(r.follower_count)}</td>
-                      <td className={`px-2 py-3 text-right text-sm font-semibold tabular-nums ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</td>
-                      <td className="px-2 py-3">
-                        {(r.niche_tags || []).length === 0 ? <span className="text-xs text-[var(--muted-foreground)]">—</span> : (
-                          <div className="flex flex-wrap gap-1">
-                            {(r.niche_tags || []).slice(0, 2).map(n => (
-                              <span key={n} className="text-[9px] bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)] px-1.5 py-0.5 rounded">{n}</span>
-                            ))}
-                            {(r.niche_tags || []).length > 2 && <span className="text-[9px] text-[var(--muted-foreground)] self-center">+{(r.niche_tags || []).length - 2}</span>}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <span className="text-xs font-semibold bg-[var(--muted)] text-[var(--foreground)] rounded-full min-w-[22px] inline-block px-2 py-0.5">{r.collab_count}</span>
-                      </td>
-                      <td className="px-2 py-3 text-center"><StatusBadge status={r.latest_status} /></td>
-                      {(() => { const na = getNextAction(r, r.active_collab); return (
-                        <td className={`hidden lg:table-cell px-2 py-3 text-xs ${ACTION_TONE[na.tone]}`}>{na.label}</td>
-                      ); })()}
-                      <td className="px-2 pr-5 py-3 text-right text-xs text-[var(--muted-foreground)] tabular-nums">{fmtDateShort(r.active_collab?.status_changed_at || r.created_at)}</td>
-                    </tr>
-                  ))}
+                  {sortedRows.map((r, i) => {
+                    const na = getNextAction(r, r.active_collab);
+                    const c = r.active_collab;
+                    const payDisplay = c?.payment_amount && c.payment_amount > 0
+                      ? { text: `$${c.payment_amount}`, cls: 'text-amber-700' }
+                      : c?.deal_type === 'gifted_only'
+                      ? { text: 'Free', cls: 'text-emerald-600' }
+                      : { text: '—', cls: 'text-[var(--muted-foreground)]' };
+                    return (
+                      <tr key={r.id} onClick={() => setSelectedId(r.id)}
+                        className={`cursor-pointer hover:bg-[var(--accent)]/40 transition-colors border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--muted)]/20' : ''}`}>
+                        <td className="pl-5 pr-2 py-2 max-w-[220px]">
+                          <a href={igUrl(r.instagram_handle)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            title={r.bio || r.instagram_handle}
+                            className="text-sm font-semibold text-[var(--foreground)] hover:text-sky-600 hover:underline truncate block leading-tight">{r.instagram_handle}</a>
+                          {r.full_name && <div className="text-[10px] text-[var(--muted-foreground)] truncate leading-tight">{r.full_name}</div>}
+                        </td>
+                        <td className={`px-2 py-2 text-right text-sm tabular-nums ${followersTone(r.follower_count)}`}>
+                          {r.follower_count !== null ? fmtFollowers(r.follower_count) : (
+                            <button onClick={e => { e.stopPropagation(); fetchScrape(r.id, r.instagram_handle); }}
+                              className="text-[10px] text-sky-500 hover:underline">fetch</button>
+                          )}
+                        </td>
+                        <td className={`px-2 py-2 text-right text-sm font-semibold tabular-nums ${engagementTone(r.engagement_rate)}`}>{r.engagement_rate !== null ? `${r.engagement_rate}%` : '—'}</td>
+                        <td className="hidden lg:table-cell px-2 py-2 max-w-[130px]">
+                          {(r.niche_tags || []).length === 0 ? <span className="text-xs text-[var(--muted-foreground)]">—</span> : (
+                            <span className="text-[10px] bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)] px-1.5 py-0.5 rounded inline-block max-w-full truncate align-middle">
+                              {(r.niche_tags || [])[0]}{(r.niche_tags || []).length > 1 && <sup className="ml-0.5">+{(r.niche_tags || []).length - 1}</sup>}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <span className="text-xs font-semibold bg-[var(--muted)] text-[var(--foreground)] rounded-full min-w-[20px] inline-block px-2 py-0.5">{r.collab_count}</span>
+                        </td>
+                        <td className={`px-2 py-2 text-right text-sm tabular-nums ${payDisplay.cls}`}>{payDisplay.text}</td>
+                        <td className="px-2 py-2 text-center"><StatusBadge status={r.latest_status} /></td>
+                        <td className={`px-2 py-2 text-xs truncate ${ACTION_TONE[na.tone]}`}>{na.label}</td>
+                        <td className="px-2 pr-5 py-2 text-right text-xs text-[var(--muted-foreground)] tabular-nums">{fmtDateShort(r.active_collab?.status_changed_at || r.created_at)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -838,7 +896,8 @@ function InfluencerPanel({ role, influencer, onClose, onRefresh, flash }: {
             </div>
             <div className="space-y-3">
               {influencer.collabs.map(c => (
-                <CollabCard key={c.id} collab={c} influencer={influencer} role={role} onRefresh={onRefresh} flash={flash} />
+                <CollabCard key={c.id} collab={c} influencer={influencer} role={role} onRefresh={onRefresh} flash={flash}
+                  defaultOpen={c.id === influencer.active_collab?.id && !['posted', 'passed'].includes(c.status)} />
               ))}
               {influencer.collabs.length === 0 && <div className="text-xs text-[var(--muted-foreground)] italic">No collabs yet</div>}
             </div>
@@ -1022,11 +1081,11 @@ function AddressEditor({ influencer, onSaved }: { influencer: Influencer; onSave
 
 /* ─── Collab Card ─── */
 
-function CollabCard({ collab, influencer, role, onRefresh, flash }: {
-  collab: Collab; influencer: Influencer; role: Role; onRefresh: () => void; flash: (m: string) => void;
+function CollabCard({ collab, influencer, role, onRefresh, flash, defaultOpen }: {
+  collab: Collab; influencer: Influencer; role: Role; onRefresh: () => void; flash: (m: string) => void; defaultOpen?: boolean;
 }) {
   const isAdmin = role === 'admin';
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(!!defaultOpen);
   const [busy, setBusy] = useState(false);
   const [showCounter, setShowCounter] = useState(false);
   const [counterNote, setCounterNote] = useState('');
@@ -1269,12 +1328,16 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
           {/* Products — always shown, editable */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">Products ({products.length})</div>
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">
+                Products ({products.length}){s === 'approved' && products.length === 0 && <span className="ml-2 text-red-600">⚠ REQUIRED</span>}
+              </div>
               {!editProducts && <button onClick={() => { setDraftProducts(products); setEditProducts(true); }} className="text-[10px] text-sky-600 hover:underline">{products.length > 0 ? '✎ Edit' : '+ Add'}</button>}
             </div>
             {!editProducts ? (
               products.length === 0 ? (
-                <div className="text-xs text-[var(--muted-foreground)] italic">No products yet — add some before creating a Shopify order</div>
+                <div className={`text-xs italic ${s === 'approved' ? 'text-red-600' : 'text-[var(--muted-foreground)]'}`}>
+                  {s === 'approved' ? 'Add products before you can create a Shopify order.' : 'No products yet — add some before creating a Shopify order'}
+                </div>
               ) : (
                 <div className="space-y-1.5">
                   {products.map((p, i) => (
@@ -1458,9 +1521,23 @@ function ConversationTimeline({ collab, role, onSave }: {
     setBusy(false);
   };
 
+  const importDm = async () => {
+    if (!collab.dm_context) return;
+    setBusy(true);
+    const next = [{ date: collab.created_at.slice(0, 10), text: collab.dm_context, by: 'system' }, ...entries];
+    await onSave(next);
+    setEntries(next);
+    setBusy(false);
+  };
+
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-2">💬 Conversation Timeline</div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">💬 Conversation Timeline</div>
+        {collab.dm_context && entries.length === 0 && (
+          <button onClick={importDm} disabled={busy} className="text-[10px] text-sky-600 hover:underline">📥 Import from DM context</button>
+        )}
+      </div>
       {entries.length === 0 ? (
         <div className="text-xs text-[var(--muted-foreground)] italic mb-2">No entries yet — log DMs as you have them.</div>
       ) : (
