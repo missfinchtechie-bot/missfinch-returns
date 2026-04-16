@@ -13,11 +13,14 @@ export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const url = new URL(req.url);
-  const days = Math.min(Math.max(parseInt(url.searchParams.get('days') || '2', 10), 1), 365);
+  const daysParam = url.searchParams.get('days');
+  // 'all' or 'full' = sync everything since 2009 (Miss Finch founding year). No clamp.
+  const allTime = daysParam === 'all' || daysParam === 'full';
+  const days = allTime ? 6000 : Math.min(Math.max(parseInt(daysParam || '2', 10), 1), 6000);
 
   try {
     const result = await runFullSync(days);
-    return NextResponse.json({ success: true, ...result });
+    return NextResponse.json({ success: true, ...result, allTime });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Sync failed';
     return NextResponse.json({ success: false, error: message }, { status: 500 });

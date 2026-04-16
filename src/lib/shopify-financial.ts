@@ -205,21 +205,225 @@ export async function syncShopifyPaymentsFees(sinceIso: string): Promise<{ trans
   return { transactions: total, skipped: false };
 }
 
+/* ─── Products + variants + COGS ─── */
+
+type VariantNode = {
+  id: string;
+  title: string;
+  sku: string | null;
+  price: string;
+  compareAtPrice: string | null;
+  inventoryQuantity: number | null;
+  availableForSale: boolean;
+  selectedOptions: { name: string; value: string }[];
+  inventoryItem: { unitCost: { amount: string } | null } | null;
+};
+
+type ProductNode = {
+  id: string;
+  title: string;
+  handle: string;
+  status: string;
+  productType: string;
+  vendor: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+  featuredImage: { url: string } | null;
+  variants: { edges: { node: VariantNode }[] };
+};
+
+const PRODUCTS_QUERY = `
+  query SyncProducts($cursor: String) {
+    products(first: 50, after: $cursor, sortKey: UPDATED_AT) {
+      pageInfo { hasNextPage endCursor }
+      edges {
+        node {
+          id title handle status productType vendor tags
+          createdAt updatedAt
+          featuredImage { url }
+          variants(first: 50) {
+            edges {
+              node {
+                id title sku price compareAtPrice
+                inventoryQuantity availableForSale
+                selectedOptions { name value }
+                inventoryItem { unitCost { amount } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export async function syncProducts(): Promise<{ products: number; variants: number }> {
+  const supabase = getServiceClient();
+  let cursor: string | null = null;
+  let productCount = 0;
+  let variantCount = 0;
+  const now = new Date().toISOString();
+
+  for (let page = 0; page < 200; page++) {
+    const data = await shopifyGraphQL(PRODUCTS_QUERY, { cursor });
+    const edges: { node: ProductNode }[] = data.products.edges;
+    if (edges.length === 0) break;
+
+    const productRows = edges.map(({ node: p }) => ({
+      id: gidToId(p.id),
+      title: p.title,
+      handle: p.handle,
+      status: p.status,
+      product_type: p.productType,
+      vendor: p.vendor,
+      tags: (p.tags || []).join(','),
+      featured_image_url: p.featuredImage?.url || null,
+      created_at: p.createdAt,
+      updated_at: p.updatedAt,
+      synced_at: now,
+    }));
+    const { error: pErr } = await supabase.from('shopify_products').upsert(productRows, { onConflict: 'id' });
+    if (pErr) throw new Error(`Products upsert failed: ${pErr.message}`);
+    productCount += productRows.length;
+
+    const variantRows = edges.flatMap(({ node: p }) =>
+      p.variants.edges.map(({ node: v }) => {
+        const sizeOpt = v.selectedOptions.find(o => o.name.toLowerCase() === 'size');
+        const colorOpt = v.selectedOptions.find(o => o.name.toLowerCase() === 'color');
+        return {
+          id: gidToId(v.id),
+          product_id: gidToId(p.id),
+          title: v.title,
+          sku: v.sku,
+          price: parseFloat(v.price) || 0,
+          compare_at_price: v.compareAtPrice ? parseFloat(v.compareAtPrice) : null,
+          unit_cost: v.inventoryItem?.unitCost?.amount ? parseFloat(v.inventoryItem.unitCost.amount) : null,
+          inventory_quantity: v.inventoryQuantity,
+          available_for_sale: v.availableForSale,
+          size: sizeOpt?.value || null,
+          color: colorOpt?.value || null,
+          synced_at: now,
+        };
+      })
+    );
+    if (variantRows.length > 0) {
+      const { error: vErr } = await supabase.from('shopify_variants').upsert(variantRows, { onConflict: 'id' });
+      if (vErr) throw new Error(`Variants upsert failed: ${vErr.message}`);
+      variantCount += variantRows.length;
+    }
+
+    if (!data.products.pageInfo.hasNextPage) break;
+    cursor = data.products.pageInfo.endCursor;
+  }
+
+  await supabase.from('shopify_sync_state').upsert({
+    key: 'products', last_synced_at: now, updated_at: now,
+  });
+  return { products: productCount, variants: variantCount };
+}
+
+/* ─── Order line items (for product-level revenue) ─── */
+
+type LineItemNode = {
+  id: string;
+  title: string;
+  sku: string | null;
+  quantity: number;
+  variant: { id: string; product: { id: string; title: string } | null } | null;
+  originalUnitPriceSet: { shopMoney: { amount: string } };
+  discountedUnitPriceSet: { shopMoney: { amount: string } };
+};
+
+const LINE_ITEMS_QUERY = `
+  query OrderLineItems($query: String!, $cursor: String) {
+    orders(first: 50, after: $cursor, query: $query, sortKey: UPDATED_AT) {
+      pageInfo { hasNextPage endCursor }
+      edges {
+        node {
+          id name createdAt
+          lineItems(first: 50) {
+            edges {
+              node {
+                id title sku quantity
+                variant { id product { id title } }
+                originalUnitPriceSet { shopMoney { amount } }
+                discountedUnitPriceSet { shopMoney { amount } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export async function syncOrderLineItems(sinceIso: string): Promise<{ lineItems: number }> {
+  const supabase = getServiceClient();
+  let cursor: string | null = null;
+  let total = 0;
+  const queryFilter = `updated_at:>=${sinceIso}`;
+  const now = new Date().toISOString();
+
+  for (let page = 0; page < 400; page++) {
+    const data = await shopifyGraphQL(LINE_ITEMS_QUERY, { query: queryFilter, cursor });
+    const edges = data.orders.edges as { node: { id: string; createdAt: string; lineItems: { edges: { node: LineItemNode }[] } } }[];
+    if (edges.length === 0) break;
+
+    const rows = edges.flatMap(({ node: o }) =>
+      o.lineItems.edges.map(({ node: li }) => ({
+        id: gidToId(li.id),
+        order_id: gidToId(o.id),
+        order_created_at: o.createdAt,
+        product_id: li.variant?.product ? gidToId(li.variant.product.id) : null,
+        variant_id: li.variant ? gidToId(li.variant.id) : null,
+        product_title: li.variant?.product?.title || li.title,
+        title: li.title,
+        sku: li.sku,
+        quantity: li.quantity,
+        original_unit_price: parseFloat(li.originalUnitPriceSet.shopMoney.amount) || 0,
+        discounted_unit_price: parseFloat(li.discountedUnitPriceSet.shopMoney.amount) || 0,
+        line_total: (parseFloat(li.discountedUnitPriceSet.shopMoney.amount) || 0) * li.quantity,
+        synced_at: now,
+      }))
+    );
+
+    if (rows.length > 0) {
+      const { error } = await supabase.from('shopify_order_line_items').upsert(rows, { onConflict: 'id' });
+      if (error) throw new Error(`Line items upsert failed: ${error.message}`);
+      total += rows.length;
+    }
+
+    if (!data.orders.pageInfo.hasNextPage) break;
+    cursor = data.orders.pageInfo.endCursor;
+  }
+
+  return { lineItems: total };
+}
+
 export async function runFullSync(days: number): Promise<{
   orders: number;
   refunds: number;
   transactions: number;
   paymentsSkipped: boolean;
+  products: number;
+  variants: number;
+  lineItems: number;
   since: string;
 }> {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const ordersResult = await syncOrders(since);
   const txResult = await syncShopifyPaymentsFees(since);
+  const productsResult = await syncProducts();
+  const liResult = await syncOrderLineItems(since);
   return {
     orders: ordersResult.orders,
     refunds: ordersResult.refunds,
     transactions: txResult.transactions,
     paymentsSkipped: txResult.skipped,
+    products: productsResult.products,
+    variants: productsResult.variants,
+    lineItems: liResult.lineItems,
     since,
   };
 }
