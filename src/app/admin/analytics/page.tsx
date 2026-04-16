@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend, PieChart, Pie, Cell } from 'recharts';
 import Nav from '@/components/Nav';
 import { MetricCard } from '@/components/MetricCard';
 import { Tooltip } from '@/components/Tooltip';
@@ -36,12 +36,22 @@ type Analytics = {
 
 const fmtMoney = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
+type BusinessAnalytics = {
+  revenueTrend: { date: string; revenue: number; orders: number }[];
+  customers: { total: number; repeat: number; repeatRate: number; totalOrders: number; totalRevenue: number };
+  topProducts: { title: string; units: number; revenue: number; returned: number; returnValue: number; returnRate: number }[];
+  returnReasons: { reason: string; count: number }[];
+};
+
+const PIE_COLORS = ['#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6', '#ef4444', '#ec4899', '#f97316', '#6366f1', '#14b8a6', '#64748b'];
+
 export default function AnalyticsPage() {
   const [authed, setAuthed] = useState(false);
   const [pw, setPw] = useState('');
   const [pwErr, setPwErr] = useState('');
   const [data, setData] = useState<Analytics | null>(null);
   const [money, setMoney] = useState<MoneyFlow | null>(null);
+  const [biz, setBiz] = useState<BusinessAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [preset, setPreset] = useState<PresetKey>('month');
   const [customFrom, setCustomFrom] = useState('');
@@ -72,12 +82,14 @@ export default function AnalyticsPage() {
     const p = new URLSearchParams();
     if (range) { p.set('from', range.from); p.set('to', range.to); }
     try {
-      const [a, m] = await Promise.all([
+      const [a, m, b] = await Promise.all([
         fetch(`/api/returns/analytics?${p}`).then(r => r.ok ? r.json() : null),
         fetch(`/api/returns/money-flow?${p}`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/analytics?${p}`).then(r => r.ok ? r.json() : null),
       ]);
       if (a) setData(a);
       if (m) setMoney(m);
+      if (b) setBiz(b);
     } finally { setLoading(false); }
   }, [range]);
 
@@ -113,20 +125,138 @@ export default function AnalyticsPage() {
         {loading || !data ? (
           <div className="text-center py-20 text-[var(--muted-foreground)]">Loading analytics…</div>
         ) : (
-          <AnalyticsContent data={data} money={money} />
+          <AnalyticsContent data={data} money={money} biz={biz} />
         )}
       </main>
     </div>
   );
 }
 
-function AnalyticsContent({ data, money }: { data: Analytics; money: MoneyFlow | null }) {
+function AnalyticsContent({ data, money, biz }: { data: Analytics; money: MoneyFlow | null; biz: BusinessAnalytics | null }) {
   const o = data.overview;
   const doneTotal = (o.totalRefunded || 0) + (o.totalCredited || 0) + (o.totalRejected || 0) + (o.totalLost || 0);
   const maxDow = Math.max(1, ...data.dayOfWeek.map(d => d.count));
 
   return (
     <>
+      {/* ─── BUSINESS ANALYTICS (Shopify data) ─── */}
+      {biz && (
+        <>
+          {/* Revenue Trend */}
+          {biz.revenueTrend.length > 0 && (
+            <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+              <div className="flex items-center mb-4">
+                <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Revenue Trend</h3>
+                <Tooltip text="Daily revenue from shopify_orders (subtotal_price, excl. cancelled/test). Line = revenue, bars = order count." />
+              </div>
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer>
+                  <LineChart data={biz.revenueTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="date" stroke="var(--muted-foreground)" fontSize={10} tickFormatter={(d: string) => d.slice(5)} />
+                    <YAxis yAxisId="rev" stroke="var(--muted-foreground)" fontSize={11} tickFormatter={(v: number) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} />
+                    <YAxis yAxisId="ord" orientation="right" stroke="var(--muted-foreground)" fontSize={11} />
+                    <RTooltip contentStyle={{ background: 'var(--foreground)', border: 'none', borderRadius: 8, color: 'var(--background)', fontSize: 12 }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line yAxisId="rev" type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} dot={false} name="Revenue" />
+                    <Bar yAxisId="ord" dataKey="orders" fill="#0ea5e9" opacity={0.3} name="Orders" radius={[2, 2, 0, 0]} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          )}
+
+          {/* Customer Metrics */}
+          <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <MetricCard label="Revenue" value={fmtMoney(biz.customers.totalRevenue)} sub={`${biz.customers.totalOrders} orders`} accent="emerald"
+              formula="SUM(subtotal_price) from shopify_orders in range, excl. cancelled and test orders." />
+            <MetricCard label="Unique Customers" value={String(biz.customers.total)} sub={`${biz.customers.repeat} repeat`}
+              formula="COUNT(DISTINCT customer_email) from shopify_orders in range." />
+            <MetricCard label="Repeat Rate" value={`${biz.customers.repeatRate}%`} sub={`${biz.customers.repeat} of ${biz.customers.total}`}
+              formula="Customers with 2+ orders / total customers × 100." />
+            <MetricCard label="Avg Order" value={fmtMoney(biz.customers.totalOrders > 0 ? biz.customers.totalRevenue / biz.customers.totalOrders : 0)} sub="avg subtotal"
+              formula="Total revenue / total orders." />
+          </section>
+
+          {/* Product Performance */}
+          {biz.topProducts.length > 0 && (
+            <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-[var(--border)] flex items-center">
+                <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Top Products</h3>
+                <Tooltip text="Revenue by product from shopify_order_line_items. Return rate = return_items matched by product_name / units sold." />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[600px]">
+                  <thead>
+                    <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                      <th className="pl-5 pr-2 py-2 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left">Product</th>
+                      <th className="px-2 py-2 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right">Units</th>
+                      <th className="px-2 py-2 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right">Revenue</th>
+                      <th className="px-2 py-2 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right">Returned</th>
+                      <th className="px-2 pr-5 py-2 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-right">Return %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {biz.topProducts.slice(0, 15).map((p, i) => (
+                      <tr key={p.title} className={`border-t border-[var(--border)] ${i % 2 === 1 ? 'bg-[var(--muted)]/20' : ''}`}>
+                        <td className="pl-5 pr-2 py-2 text-sm text-[var(--foreground)] truncate max-w-[280px]" title={p.title}>{p.title}</td>
+                        <td className="px-2 py-2 text-right text-sm tabular-nums">{p.units}</td>
+                        <td className="px-2 py-2 text-right text-sm tabular-nums font-semibold">{fmtMoney(p.revenue)}</td>
+                        <td className="px-2 py-2 text-right text-sm tabular-nums text-[var(--muted-foreground)]">{p.returned || '—'}</td>
+                        <td className={`px-2 pr-5 py-2 text-right text-sm tabular-nums ${p.returnRate >= 30 ? 'text-red-600 font-semibold' : p.returnRate >= 15 ? 'text-amber-700' : 'text-[var(--muted-foreground)]'}`}>
+                          {p.returned > 0 ? `${p.returnRate}%` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Return Reasons */}
+          {biz.returnReasons.length > 0 && (
+            <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+              <div className="flex items-center mb-4">
+                <h3 className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Return Reasons</h3>
+                <Tooltip text="Grouped by returns.reason. 'Not specified' = no reason given (most Redo imports)." />
+              </div>
+              <div className="flex flex-col lg:flex-row gap-6 items-start">
+                <div style={{ width: 220, height: 220 }} className="mx-auto lg:mx-0 flex-shrink-0">
+                  <ResponsiveContainer>
+                    <PieChart>
+                      <Pie data={biz.returnReasons} dataKey="count" nameKey="reason" cx="50%" cy="50%" outerRadius={90} innerRadius={40} paddingAngle={2}>
+                        {biz.returnReasons.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                      </Pie>
+                      <RTooltip contentStyle={{ background: 'var(--foreground)', border: 'none', borderRadius: 8, color: 'var(--background)', fontSize: 12 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 space-y-2">
+                  {biz.returnReasons.map((r, i) => {
+                    const total = biz.returnReasons.reduce((s, x) => s + x.count, 0);
+                    const pct = total > 0 ? (r.count / total) * 100 : 0;
+                    return (
+                      <div key={r.reason} className="flex items-center gap-3 text-sm">
+                        <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <span className="flex-1 truncate text-[var(--foreground)]">{r.reason}</span>
+                        <span className="text-[var(--muted-foreground)] tabular-nums">{r.count}</span>
+                        <span className="text-[var(--muted-foreground)] tabular-nums w-12 text-right">{pct.toFixed(0)}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Separator between business analytics and returns analytics */}
+          <div className="border-t-2 border-[var(--border)] pt-2">
+            <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Returns Analytics</div>
+          </div>
+        </>
+      )}
+
       {/* Overview Cards */}
       <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <MetricCard label="Total Returns" value={o.totalReturns.toLocaleString()} formula="COUNT(*) from returns table for the selected date range, filtered by return_requested." />
