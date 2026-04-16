@@ -52,8 +52,11 @@ type Collab = {
   counter_note: string | null;
   declined_reason: string | null;
   expected_post_date: string | null;
+  conversation_timeline: TimelineEntry[] | null;
   created_at: string;
 };
+
+type TimelineEntry = { date: string; text: string; by: string };
 
 type Influencer = {
   id: string;
@@ -229,9 +232,12 @@ export default function InfluencersPage() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [formInitialHandle, setFormInitialHandle] = useState('');
   const [toast, setToast] = useState('');
-  const [sortKey, setSortKey] = useState<string>('updated');
+  const [sortKey, setSortKey] = useState<string>('priority');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [showGuidelines, setShowGuidelines] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const toggleSort = (k: string) => {
     if (sortKey === k) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
@@ -280,6 +286,10 @@ export default function InfluencersPage() {
     );
   }, [rows, search]);
 
+  const PRIORITY: Record<string, number> = {
+    negotiating: 100, approved: 90, outreach: 80, shipped: 70,
+    prospect: 50, posted: 30, watchlist: 20, passed: 10,
+  };
   const sortedRows = useMemo(() => {
     return [...filteredRows].sort((a, b) => {
       let av: string | number = 0, bv: string | number = 0;
@@ -287,13 +297,22 @@ export default function InfluencersPage() {
         case 'followers': av = a.follower_count || 0; bv = b.follower_count || 0; break;
         case 'engagement': av = a.engagement_rate || 0; bv = b.engagement_rate || 0; break;
         case 'collabs': av = a.collab_count; bv = b.collab_count; break;
-        case 'updated':
-        default: av = a.active_collab?.status_changed_at || a.created_at; bv = b.active_collab?.status_changed_at || b.created_at;
+        case 'updated': av = a.active_collab?.status_changed_at || a.created_at; bv = b.active_collab?.status_changed_at || b.created_at; break;
+        case 'priority':
+        default:
+          // Priority by status THEN by recency
+          const ap = PRIORITY[a.latest_status] || 0;
+          const bp = PRIORITY[b.latest_status] || 0;
+          if (ap !== bp) return sortDir === 'asc' ? ap - bp : bp - ap;
+          av = a.active_collab?.status_changed_at || a.created_at;
+          bv = b.active_collab?.status_changed_at || b.created_at;
+          return sortDir === 'asc' ? (av < bv ? -1 : av > bv ? 1 : 0) : (av > bv ? -1 : av < bv ? 1 : 0);
       }
       if (av < bv) return sortDir === 'asc' ? -1 : 1;
       if (av > bv) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRows, sortKey, sortDir]);
 
   if (!authed) {
@@ -323,7 +342,16 @@ export default function InfluencersPage() {
       <Nav active="influencers" />
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
-        <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Influencer Tracker</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-heading text-2xl font-semibold text-[var(--foreground)]">Influencer Tracker</h2>
+          <div className="flex gap-3 text-[11px] tracking-wider uppercase font-semibold">
+            <button onClick={() => setShowTemplates(v => !v)} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">{showTemplates ? '▼' : '▶'} 📋 DM Templates</button>
+            <button onClick={() => setShowGuidelines(v => !v)} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">{showGuidelines ? '▼' : '▶'} Vetting Guidelines</button>
+          </div>
+        </div>
+
+        {showTemplates && <DmTemplatesPanel />}
+        {showGuidelines && <VettingGuidelinesContent />}
 
         {/* Stats */}
         {role === 'admin' && (
@@ -376,13 +404,19 @@ export default function InfluencersPage() {
         {loading ? (
           <div className="text-center py-20 text-[var(--muted-foreground)] text-sm">Loading…</div>
         ) : sortedRows.length === 0 ? (
-          <div className="text-center py-20 text-[var(--muted-foreground)]">
-            <div className="text-3xl mb-2">💌</div>
+          <div className="text-center py-20 text-[var(--muted-foreground)] space-y-3">
+            <div className="text-3xl">💌</div>
             <div className="text-sm">
-              {search ? `No influencers match "${search}"` :
+              {search ? `No results for "${search}"` :
                 filter !== 'all' && EMPTY_PER_FILTER[filter] ? EMPTY_PER_FILTER[filter] :
                 'No influencers yet.'}
             </div>
+            {search && (
+              <button onClick={() => { setFormInitialHandle(search.startsWith('@') ? search : `@${search}`); setShowForm(true); }}
+                className="text-xs font-semibold px-3.5 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90">
+                + Add {search.startsWith('@') ? search : `@${search}`} as new influencer
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -396,6 +430,7 @@ export default function InfluencersPage() {
                     <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[180px]">Niche</th>
                     <SortTh label="Collabs" k="collabs" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="center" w="w-[80px]" />
                     <th className="px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center w-[130px]">Latest</th>
+                    <th className="hidden lg:table-cell px-2 py-2.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-left w-[160px]">Next Action</th>
                     <SortTh label="Updated" k="updated" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="right" w="pr-5 w-[80px]" />
                   </tr>
                 </thead>
@@ -425,6 +460,9 @@ export default function InfluencersPage() {
                         <span className="text-xs font-semibold bg-[var(--muted)] text-[var(--foreground)] rounded-full min-w-[22px] inline-block px-2 py-0.5">{r.collab_count}</span>
                       </td>
                       <td className="px-2 py-3 text-center"><StatusBadge status={r.latest_status} /></td>
+                      {(() => { const na = getNextAction(r, r.active_collab); return (
+                        <td className={`hidden lg:table-cell px-2 py-3 text-xs ${ACTION_TONE[na.tone]}`}>{na.label}</td>
+                      ); })()}
                       <td className="px-2 pr-5 py-3 text-right text-xs text-[var(--muted-foreground)] tabular-nums">{fmtDateShort(r.active_collab?.status_changed_at || r.created_at)}</td>
                     </tr>
                   ))}
@@ -461,7 +499,7 @@ export default function InfluencersPage() {
         )}
       </main>
 
-      {showForm && <NewInfluencerForm role={role} onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); flash('Created ✓'); fetchAll(); }} />}
+      {showForm && <NewInfluencerForm role={role} initialHandle={formInitialHandle} onClose={() => { setShowForm(false); setFormInitialHandle(''); }} onCreated={() => { setShowForm(false); setFormInitialHandle(''); flash('Created ✓'); fetchAll(); }} />}
       {selected && <InfluencerPanel role={role} influencer={selected} onClose={() => setSelectedId(null)} onRefresh={fetchAll} flash={flash} />}
     </div>
   );
@@ -469,8 +507,8 @@ export default function InfluencersPage() {
 
 /* ─── New Influencer Form ─── */
 
-function NewInfluencerForm({ role, onClose, onCreated }: { role: Role; onClose: () => void; onCreated: () => void }) {
-  const [handle, setHandle] = useState('');
+function NewInfluencerForm({ role, initialHandle, onClose, onCreated }: { role: Role; initialHandle?: string; onClose: () => void; onCreated: () => void }) {
+  const [handle, setHandle] = useState(initialHandle || '');
   const [followers, setFollowers] = useState('');
   const [engagement, setEngagement] = useState('');
   const [niches, setNiches] = useState<string[]>([]);
@@ -740,12 +778,10 @@ function InfluencerPanel({ role, influencer, onClose, onRefresh, flash }: {
                 {(influencer.niche_tags || []).length > 0 && <span className="text-[var(--muted-foreground)]"> · {(influencer.niche_tags || []).join(', ')}</span>}
               </div>
               {influencer.email && <a href={`mailto:${influencer.email}`} className="text-xs text-sky-600 hover:underline mt-0.5 inline-block">{influencer.email}</a>}
-              {isAdmin && (
-                <div className="flex gap-3 mt-1">
-                  <button onClick={rescrape} disabled={busy} className="text-[10px] text-sky-600 hover:underline">↻ Refresh stats</button>
-                  <button onClick={() => setEditProfile(v => !v)} className="text-[10px] text-sky-600 hover:underline">{editProfile ? 'Done editing' : '✎ Edit profile'}</button>
-                </div>
-              )}
+              <div className="flex gap-3 mt-1">
+                {isAdmin && <button onClick={rescrape} disabled={busy} className="text-[10px] text-sky-600 hover:underline">↻ Refresh stats</button>}
+                <button onClick={() => setEditProfile(v => !v)} className="text-[10px] text-sky-600 hover:underline">{editProfile ? 'Done editing' : '✎ Edit profile'}</button>
+              </div>
             </div>
             <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">✕</button>
           </div>
@@ -1052,10 +1088,19 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
       <div className="flex-1 min-w-0">
       <button onClick={() => setExpanded(v => !v)} className="w-full text-left p-4 flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-[var(--foreground)]">Collab #{collab.collab_number}</span>
-            <StatusBadge status={s} />
-          </div>
+          {(() => {
+            const days = Math.floor((Date.now() - new Date(collab.status_changed_at).getTime()) / 86400000);
+            const stale = days >= 14 ? 'bg-red-100 text-red-700' : days >= 7 ? 'bg-amber-100 text-amber-700' : null;
+            return (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-[var(--foreground)]">Collab #{collab.collab_number}</span>
+                <StatusBadge status={s} />
+                {stale && !['posted', 'passed'].includes(s) && (
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${stale}`}>{days}d</span>
+                )}
+              </div>
+            );
+          })()}
           <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
             {[
               formatDealType(collab.deal_type),
@@ -1127,10 +1172,15 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
             </div>
           )}
 
-          {/* DM context */}
+          {/* Conversation Timeline */}
+          <ConversationTimeline collab={collab} role={role} onSave={async (timeline) => {
+            await act('update_fields', { conversation_timeline: timeline });
+          }} />
+
+          {/* DM context (legacy text blob — read only) */}
           {collab.dm_context && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-1">💬 DM Context</div>
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-1">💬 DM Context (legacy)</div>
               <div className="text-xs text-[var(--foreground)] whitespace-pre-wrap">{collab.dm_context}</div>
             </div>
           )}
@@ -1143,13 +1193,11 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
             </div>
           )}
 
-          {/* Deal terms — editable */}
+          {/* Deal terms — editable (admin: full; intern: deliverables only) */}
           <div className="text-xs space-y-1">
             <div className="flex items-center justify-between mb-1">
               <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">Deal</div>
-              {isAdmin && (
-                <button onClick={() => setEditDeal(v => !v)} className="text-[10px] text-sky-600 hover:underline">{editDeal ? 'Cancel' : '✎ Edit'}</button>
-              )}
+              <button onClick={() => setEditDeal(v => !v)} className="text-[10px] text-sky-600 hover:underline">{editDeal ? 'Cancel' : '✎ Edit'}</button>
             </div>
             {!editDeal ? (
               !collab.deal_type && !collab.deliverables && !collab.discount_code ? (
@@ -1166,45 +1214,54 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
               )
             ) : (
               <div className="space-y-2 mt-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <select value={dealDraft.deal_type} onChange={e => setDealDraft({ ...dealDraft, deal_type: e.target.value })}
-                    className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs">
-                    <option value="">Type…</option>
-                    <option value="gifted_only">Gifted</option>
-                    <option value="gifted_paid">Gifted + Paid</option>
-                    <option value="paid_only">Paid</option>
-                    <option value="affiliate">Affiliate</option>
-                  </select>
-                  <input type="number" value={dealDraft.payment_amount} onChange={e => setDealDraft({ ...dealDraft, payment_amount: e.target.value })}
-                    placeholder="Payment $" className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
-                </div>
-                <select value={dealDraft.payment_method} onChange={e => setDealDraft({ ...dealDraft, payment_method: e.target.value })}
-                  className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs">
-                  <option value="">Payment method…</option>
-                  <option>PayPal</option><option>Zelle</option><option>Venmo</option><option>Store Credit</option><option>N/A</option>
-                </select>
+                {isAdmin ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={dealDraft.deal_type} onChange={e => setDealDraft({ ...dealDraft, deal_type: e.target.value })}
+                        className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs">
+                        <option value="">Type…</option>
+                        <option value="gifted_only">Gifted</option>
+                        <option value="gifted_paid">Gifted + Paid</option>
+                        <option value="paid_only">Paid</option>
+                        <option value="affiliate">Affiliate</option>
+                      </select>
+                      <input type="number" value={dealDraft.payment_amount} onChange={e => setDealDraft({ ...dealDraft, payment_amount: e.target.value })}
+                        placeholder="Payment $" className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                    </div>
+                    <select value={dealDraft.payment_method} onChange={e => setDealDraft({ ...dealDraft, payment_method: e.target.value })}
+                      className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs">
+                      <option value="">Payment method…</option>
+                      <option>PayPal</option><option>Zelle</option><option>Venmo</option><option>Store Credit</option><option>N/A</option>
+                    </select>
+                  </>
+                ) : (
+                  <div className="text-[10px] text-[var(--muted-foreground)] italic">Deal type, payment, and discount code are admin-only. You can edit deliverables and the post date.</div>
+                )}
                 <textarea value={dealDraft.deliverables} onChange={e => setDealDraft({ ...dealDraft, deliverables: e.target.value })}
-                  rows={2} placeholder="Deliverables" className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                  rows={2} placeholder="Deliverables (e.g. 2 reels + 1 story)" className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
                 <div className="grid grid-cols-2 gap-2">
                   <input type="date" value={dealDraft.expected_post_date} onChange={e => setDealDraft({ ...dealDraft, expected_post_date: e.target.value })}
                     className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
-                  <input value={dealDraft.discount_code} onChange={e => setDealDraft({ ...dealDraft, discount_code: e.target.value })}
-                    placeholder="Discount code" className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                  {isAdmin && <input value={dealDraft.discount_code} onChange={e => setDealDraft({ ...dealDraft, discount_code: e.target.value })}
+                    placeholder="Discount code" className="p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />}
                 </div>
-                <textarea value={dealDraft.special_instructions} onChange={e => setDealDraft({ ...dealDraft, special_instructions: e.target.value })}
-                  rows={2} placeholder="Special instructions" className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+                {isAdmin && <textarea value={dealDraft.special_instructions} onChange={e => setDealDraft({ ...dealDraft, special_instructions: e.target.value })}
+                  rows={2} placeholder="Special instructions" className="w-full p-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />}
                 <button onClick={async () => {
-                  await act('update_fields', {
-                    deal_type: dealDraft.deal_type || null,
-                    payment_amount: parseFloat(dealDraft.payment_amount) || 0,
-                    payment_method: dealDraft.payment_method || null,
+                  const payload: Record<string, unknown> = {
                     deliverables: dealDraft.deliverables || null,
                     expected_post_date: dealDraft.expected_post_date || null,
-                    discount_code: dealDraft.discount_code || null,
-                    special_instructions: dealDraft.special_instructions || null,
-                  });
-                  flash('Deal saved'); setEditDeal(false);
-                }} disabled={busy} className="w-full py-2 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-xs font-semibold">Save Deal</button>
+                  };
+                  if (isAdmin) {
+                    payload.deal_type = dealDraft.deal_type || null;
+                    payload.payment_amount = parseFloat(dealDraft.payment_amount) || 0;
+                    payload.payment_method = dealDraft.payment_method || null;
+                    payload.discount_code = dealDraft.discount_code || null;
+                    payload.special_instructions = dealDraft.special_instructions || null;
+                  }
+                  await act('update_fields', payload);
+                  flash('Saved'); setEditDeal(false);
+                }} disabled={busy} className="w-full py-2 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-xs font-semibold">Save</button>
               </div>
             )}
           </div>
@@ -1213,7 +1270,7 @@ function CollabCard({ collab, influencer, role, onRefresh, flash }: {
           <div>
             <div className="flex items-center justify-between mb-1">
               <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]">Products ({products.length})</div>
-              {isAdmin && !editProducts && <button onClick={() => { setDraftProducts(products); setEditProducts(true); }} className="text-[10px] text-sky-600 hover:underline">{products.length > 0 ? '✎ Edit' : '+ Add'}</button>}
+              {!editProducts && <button onClick={() => { setDraftProducts(products); setEditProducts(true); }} className="text-[10px] text-sky-600 hover:underline">{products.length > 0 ? '✎ Edit' : '+ Add'}</button>}
             </div>
             {!editProducts ? (
               products.length === 0 ? (
@@ -1366,5 +1423,175 @@ export function ProductPicker({ products, setProducts }: { products: Product[]; 
         </div>
       )}
     </div>
+  );
+}
+
+/* ─── Conversation Timeline ─── */
+
+function ConversationTimeline({ collab, role, onSave }: {
+  collab: Collab; role: Role;
+  onSave: (timeline: TimelineEntry[]) => Promise<void>;
+}) {
+  const initial: TimelineEntry[] = collab.conversation_timeline || [];
+  const [entries, setEntries] = useState<TimelineEntry[]>(initial);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { setEntries(collab.conversation_timeline || []); }, [collab.conversation_timeline]);
+
+  const addEntry = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    const next = [...entries, { date, text: text.trim(), by: role }];
+    await onSave(next);
+    setEntries(next);
+    setText('');
+    setBusy(false);
+  };
+
+  const removeEntry = async (i: number) => {
+    setBusy(true);
+    const next = entries.filter((_, j) => j !== i);
+    await onSave(next);
+    setEntries(next);
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)] mb-2">💬 Conversation Timeline</div>
+      {entries.length === 0 ? (
+        <div className="text-xs text-[var(--muted-foreground)] italic mb-2">No entries yet — log DMs as you have them.</div>
+      ) : (
+        <div className="space-y-1.5 mb-3">
+          {entries.map((e, i) => (
+            <div key={i} className="flex gap-2 text-xs items-start group">
+              <div className="text-[10px] text-[var(--muted-foreground)] w-12 flex-shrink-0 pt-0.5">{fmtDateShort(e.date)}</div>
+              <div className="flex-1 text-[var(--foreground)] whitespace-pre-wrap">{e.text}</div>
+              <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded ${e.by === 'admin' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>{e.by}</span>
+              <button onClick={() => removeEntry(i)} disabled={busy} className="text-[10px] text-red-400 opacity-0 group-hover:opacity-100">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-1.5 items-stretch">
+        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[11px] w-[110px]" />
+        <input value={text} onChange={e => setText(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addEntry()}
+          placeholder="What was said?"
+          className="flex-1 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs" />
+        <button onClick={addEntry} disabled={!text.trim() || busy}
+          className="px-3 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-[11px] font-semibold disabled:opacity-50">Add</button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Next Action helper ─── */
+
+export function getNextAction(influencer: Influencer, c: Collab | null): { label: string; tone: 'red' | 'amber' | 'green' | 'gray' | 'blue' } {
+  if (!c) return { label: '—', tone: 'gray' };
+  const hasProducts = (c.products || []).length > 0;
+  const hasAddress = !!influencer.shipping_address1 || !!c.shipping_override?.address1;
+  switch (c.status) {
+    case 'prospect': return { label: 'Evaluate', tone: 'gray' };
+    case 'outreach': return { label: 'Waiting for reply', tone: 'gray' };
+    case 'negotiating': return c.counter_note ? { label: 'Intern revising', tone: 'amber' } : { label: 'Your review', tone: 'amber' };
+    case 'approved':
+      if (!hasProducts) return { label: '⚠ Needs products', tone: 'red' };
+      if (!hasAddress) return { label: '⚠ Needs address', tone: 'red' };
+      return { label: 'Ready to ship →', tone: 'amber' };
+    case 'shipped': return { label: 'Awaiting content', tone: 'blue' };
+    case 'posted': return { label: '✓ Complete', tone: 'green' };
+    case 'passed': return { label: 'Passed', tone: 'gray' };
+    case 'watchlist': return { label: 'Watching', tone: 'gray' };
+    default: return { label: '—', tone: 'gray' };
+  }
+}
+
+const ACTION_TONE: Record<string, string> = {
+  red: 'text-red-600 font-semibold', amber: 'text-amber-700 font-semibold',
+  green: 'text-emerald-700', blue: 'text-blue-700', gray: 'text-[var(--muted-foreground)]',
+};
+
+/* ─── DM Templates ─── */
+
+const DM_TEMPLATES = [
+  { name: 'First Outreach', text: `Hey [NAME],
+We're Miss Finch NYC, a modest fashion brand, and we love the content you create on your page. We think your audience would align perfectly with our collection.
+
+We're currently looking for influencers to collaborate with and were wondering if you'd be interested in a collaboration.
+
+Let me know if you'd like to collaborate, and I can share more details!
+Best,
+Miss Finch NYC 💗` },
+  { name: 'Follow Up', text: `Hey [NAME], just following up on our message! We'd love to work together if you're interested. Let us know! 💗` },
+  { name: 'Offer Details', text: `We would love to send you [NUMBER] complimentary pieces from our collection (your choice!) in exchange for [DELIVERABLES]. We would love to take a look at your media kit as well! 🤗` },
+  { name: 'Counter / Negotiate', text: `We appreciate the rate! At this time we can offer $[AMOUNT] for a reel + gifted pieces from our collection. We would love to make this work! ☺️` },
+];
+
+function DmTemplatesPanel() {
+  const [copied, setCopied] = useState<number | null>(null);
+  const copy = (i: number) => {
+    navigator.clipboard.writeText(DM_TEMPLATES[i].text).then(() => {
+      setCopied(i);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  };
+  return (
+    <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+      <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">📋 DM Templates</div>
+      {DM_TEMPLATES.map((t, i) => (
+        <div key={t.name} className="border border-[var(--border)] rounded-xl p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold text-[var(--foreground)]">{t.name}</div>
+            <button onClick={() => copy(i)} className="text-xs text-sky-600 hover:underline">{copied === i ? '✓ Copied' : 'Copy'}</button>
+          </div>
+          <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap font-sans">{t.text}</pre>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/* ─── Vetting Guidelines content ─── */
+
+function VettingGuidelinesContent() {
+  return (
+    <section className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-4 text-sm">
+      <div>
+        <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-2">Pricing Guidelines</div>
+        <ul className="text-sm text-[var(--foreground)] space-y-1 list-disc list-inside">
+          <li>Target: <b>$250/reel</b> for most collabs</li>
+          <li>Under 30K followers: 1–3 gifted items, max $250/post</li>
+          <li>30K+ followers: 3–6 gifted items, max $500/post</li>
+          <li>100K+: case by case — discuss with Ryan first</li>
+          <li>Always start with a gifted-only offer; only add payment if they push back AND their profile justifies it</li>
+          <li>Standard discount code: 15–20% for their audience</li>
+          <li>Backend bonus: 5–10% commission (case by case)</li>
+          <li>Prefer 10 × 50K followers over 1 × 500K followers</li>
+        </ul>
+      </div>
+      <div>
+        <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-2">Outreach Priority</div>
+        <ul className="text-sm text-[var(--foreground)] space-y-1 list-disc list-inside">
+          <li>Mormon, Christian, Jewish creators in the modesty niche FIRST</li>
+          <li>Then branch out to general modest fashion</li>
+          <li>Focus on 10K–100K follower range for best engagement</li>
+          <li><b>Reference fit:</b> @sophiathejew — Orthodox lifestyle creator who organically shared our products. The kind of authentic voice + aligned audience to replicate.</li>
+        </ul>
+      </div>
+      <div>
+        <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-2">Red Flags</div>
+        <ul className="text-sm text-[var(--foreground)] space-y-1 list-disc list-inside">
+          <li>Engagement under 3% = likely fake/dead audience</li>
+          <li>Niche mismatch = audience won&apos;t buy modest midi dresses</li>
+          <li>Asking &gt;$200 for &lt;20K followers = not worth it</li>
+          <li>No modest fashion content in feed</li>
+        </ul>
+      </div>
+    </section>
   );
 }

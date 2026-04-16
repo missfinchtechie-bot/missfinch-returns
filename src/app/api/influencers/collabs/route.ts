@@ -12,7 +12,7 @@ const COLLAB_FIELDS = [
   'post_reach', 'post_impressions', 'post_engagement',
   'exchange_requested', 'exchange_items', 'exchange_return_tracking', 'exchange_return_received',
   'admin_notes', 'intern_notes', 'dm_context', 'counter_note', 'declined_reason',
-  'expected_post_date',
+  'expected_post_date', 'conversation_timeline',
 ];
 
 // POST /api/influencers/collabs — start a new collab on an existing influencer
