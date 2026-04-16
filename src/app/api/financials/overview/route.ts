@@ -73,6 +73,24 @@ export async function GET(req: Request) {
   const refundRate = grossRevenue > 0 ? (shopifyRefunds / grossRevenue) * 100 : 0;
   const shopifyFees = txs.reduce((s, t) => s + Number(t.fee), 0);
 
+  // Total refund requests = refunded (done) + unrefunded (inbox/shipping/old) from returns table
+  // This captures every refund-type return regardless of whether cash was actually sent back yet.
+  let rrq = supabase.from('returns').select('subtotal, final_amount, status, outcome').eq('type', 'refund');
+  if (from) rrq = rrq.gte('return_requested', from);
+  if (to) rrq = rrq.lte('return_requested', to);
+  const { data: refundReqRows } = await rrq.limit(50000);
+  let refundedValue = 0;
+  let pendingRefundValue = 0;
+  for (const r of (refundReqRows || []) as { subtotal: number | null; final_amount: number | null; status: string; outcome: string | null }[]) {
+    const sub = Number(r.subtotal) || 0;
+    if (r.status === 'done' && r.outcome === 'refund') {
+      refundedValue += Number(r.final_amount) > 0 ? Number(r.final_amount) : sub;
+    } else if (r.status !== 'done') {
+      pendingRefundValue += sub * 0.95; // net after 5% restocking
+    }
+  }
+  const totalRefundRequests = refundedValue + pendingRefundValue;
+
   // Customer metrics
   const emailCounts = new Map<string, number>();
   for (const o of orders) {
@@ -133,6 +151,7 @@ export async function GET(req: Request) {
     summary: {
       grossRevenue, netRevenue, totalRevenue, discounts, shipping, tax,
       shopifyRefunds, refundRate,
+      refundedValue, pendingRefundValue, totalRefundRequests,
       orderCount, aov, shopifyFees,
       uniqueCustomers, repeatCustomers, repeatRate,
       hasCogs, totalCogs, grossMargin, grossMarginPct,

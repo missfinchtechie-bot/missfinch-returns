@@ -163,10 +163,12 @@ export default function AdminDashboard() {
   useEffect(() => { if (authed) { fetchReturns(); fetchStats(); } }, [authed, tab, search, page, sort, range, customerFilter, fetchReturns, fetchStats]);
   useEffect(() => { setPage(1); }, [tab, search, sort, range, customerFilter]);
 
-  // When switching to In Transit tab, default sort to oldest-shipped first
+  // Sort per tab: In Transit → oldest-shipped first; others → most-recent return_requested desc
   useEffect(() => {
-    if (tab === 'shipping' && sort.key === 'return_requested' && sort.dir === 'desc') {
-      setSort({ key: 'customer_shipped', dir: 'asc' });
+    if (tab === 'shipping') {
+      if (sort.key !== 'customer_shipped') setSort({ key: 'customer_shipped', dir: 'asc' });
+    } else {
+      if (sort.key === 'customer_shipped') setSort({ key: 'return_requested', dir: 'desc' });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);

@@ -17,6 +17,7 @@ type Summary = {
   grossRevenue: number; netRevenue: number; totalRevenue: number;
   discounts: number; shipping: number; tax: number;
   shopifyRefunds: number; refundRate: number;
+  refundedValue: number; pendingRefundValue: number; totalRefundRequests: number;
   orderCount: number; aov: number; shopifyFees: number;
   uniqueCustomers: number; repeatCustomers: number; repeatRate: number;
   hasCogs: boolean; totalCogs: number; grossMargin: number; grossMarginPct: number;
@@ -184,6 +185,21 @@ export default function FinancialsPage() {
                   formula="SUM(total_refunded) from shopify_orders. Actual cash returned to customers via Shopify." />
                 <MetricCard label="Refund Rate" value={fmtPct(s.refundRate)} sub="of gross revenue"
                   formula="shopifyRefunds / grossRevenue × 100." />
+              </div>
+            </section>
+
+            <section>
+              <div className="text-[11px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold mb-3">Refund Requests (all refund-type returns)</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <MetricCard label="Total Refunds" value={fmtMoney(s.totalRefundRequests)} sub="refunded + pending" negative
+                  formula="Refunded (processed) + Pending (inbox/shipping/backlog, net of 5% fee). All refund-type returns regardless of status." />
+                <MetricCard label="Refunded" value={fmtMoney(s.refundedValue)} sub="already processed"
+                  formula="SUM(final_amount) or subtotal when final_amount is 0 (legacy) WHERE outcome='refund'." />
+                <MetricCard label="Pending" value={fmtMoney(s.pendingRefundValue)} sub="not yet processed" accent="amber"
+                  formula="SUM(subtotal × 0.95) WHERE status IN (inbox, shipping, old) AND type='refund'. Net of restocking fee." />
+                <MetricCard label="Processed %" value={s.totalRefundRequests > 0 ? fmtPct((s.refundedValue / s.totalRefundRequests) * 100) : '—'}
+                  sub="of total requests"
+                  formula="refundedValue / totalRefundRequests × 100." />
               </div>
             </section>
 
